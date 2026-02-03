@@ -1,23 +1,31 @@
 import cv2
-from ImageProcessor import ImageProcessor
+from metrics import calculate_character_error_rate
+from ImageProcessor import ImageProcessor, Type151ImageProcessor
 from ROIStorage import ROIStorage
+from ResultStorage import ResultStorage
 import numpy as np
 import os
 import pytesseract
 import dotenv
 
 class LabelProcessor:
-    def __init__(self, label_scan_pdf_path: str, roi_json_path: str):
+    def __init__(self, label_scan_pdf_path: str,
+                roi_json_path: str,
+                image_processor: ImageProcessor = ImageProcessor()):
         dotenv.load_dotenv()
         pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_PATH")
 
-        self.image_processor = ImageProcessor()
+        # get image from scan
+        self.image_processor = image_processor
+        self.region_images: dict[str, np.ndarray] = {}
         self.full_label_image = self.image_processor.convert_pdf_to_image(label_scan_pdf_path)
 
+        # get ROIs and establish starting position anchor point
         PADDING = int(os.getenv("PADDING"))
         self.roi_storage = ROIStorage(self.full_label_image, roi_json_path=roi_json_path)
         start_x, start_y =self.roi_storage.establish_roi_starting_position(
             template_image_path="./images/logo_template.jpg", padding_x=PADDING)
+        # crop image to start from anchor point
         self.full_label_image = self.full_label_image[start_y:, start_x:]
 
         self.roi_coordinates = self.roi_storage.load_roi_json_data()
@@ -49,6 +57,9 @@ class LabelProcessor:
         for roi_name, img in self.region_images.items():
             region_texts[roi_name] = self._extract_text_from_region_image(img)
         return region_texts
+    
+    def get_extracted_texts(self) -> dict[str, str]:
+        return self.region_texts
 
     def display_region_images(self):
         for roi_name, image in self.region_images.items():
@@ -67,22 +78,14 @@ class LabelProcessor:
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     
-    def save_extracted_texts_to_txt(self, output_txt_path: str):
-        with open(output_txt_path, 'w', encoding='utf-8') as f:
-            for roi_name, text in self.region_texts.items():
-                f.write(f"--- Region: {roi_name} ---\n")
-                f.write(text + "\n\n")
-    
-    def save_extracted_texts_to_json(self, output_json_path: str):
-        import json
-        with open(output_json_path, 'w', encoding='utf-8') as f:
-            json.dump(self.region_texts, f, indent=4, ensure_ascii=False)
-        
-
-
-    
 if __name__ == "__main__":
-    processor = LabelProcessor("../label_scans/M333023W146.pdf", "./roi_data/label_146_rois.json")
-    processor.save_extracted_texts_to_txt("./extracted_info/label_146_texts.txt")
-    processor.save_extracted_texts_to_json("./extracted_info/label_146_texts.json")
-    processor.display_region_images()
+    image_processor = Type151ImageProcessor()
+    processor = LabelProcessor("../label_scans/M333023W151.pdf",
+                               "./roi_data/label_151_rois.json",
+                                image_processor=image_processor)
+    result_storage = ResultStorage(processor.get_extracted_texts(), gt_texts_path="./ground_truth/label_151_texts_gt.json")
+    result_storage.add_cer_metric()
+    result_storage.add_metric_info_to_summary()
+    result_storage.add_extracted_texts_to_summary()
+    result_storage.save_extracted_texts_to_json("./results/label_151_texts.json")
+    result_storage.save_summary_to_txt("./results/label_151_summary.txt")
