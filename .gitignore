@@ -1,4 +1,5 @@
-extracted_info/
+results/
+ground_truth/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -48,7 +48,12 @@ class ImageProcessor():
             return self.preprocess_patient_label
         else:
             return self.preprocess_image_general
-    
-    
+
+class Type151ImageProcessor(ImageProcessor):
+    def __init__(self):
+        super().__init__()
+    def preprocess_small_label(self, image: np.ndarray) -> np.ndarray:
+        image = cv2.rotate(image, cv2.ROTATE_180)
+        return self.preprocess_image_general(image)
     
         
