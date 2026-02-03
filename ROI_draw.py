@@ -1,3 +1,4 @@
+import os
 import cv2
 def create_roi_gui(full_image: cv2.Mat | None,
                    roi_coordinates: dict[str, tuple[int, int, int, int]] | None = None ) -> dict[str, tuple[int, int, int, int]]:
@@ -182,3 +183,27 @@ def create_roi_gui(full_image: cv2.Mat | None,
 
     cv2.destroyWindow(window_name)
     return roi_coordinates
+
+if __name__ == "__main__":
+    from ImageProcessor import ImageProcessor
+    from ROIStorage import ROIStorage
+    import dotenv
+    dotenv.load_dotenv()
+    PADDING = int(os.getenv("PADDING"))
+
+    label_scan_pdf_path = "../label_scans/M333023W146.pdf"
+    roi_json_path = "./roi_data/label_146_rois.json"
+
+    image_processor = ImageProcessor()
+    full_label_image = image_processor.convert_pdf_to_image(label_scan_pdf_path)
+
+    roi_storage = ROIStorage(full_label_image, roi_json_path=roi_json_path)
+
+    start_x, start_y = roi_storage.establish_roi_starting_position(
+        template_image_path="./images/logo_template.jpg", padding_x=PADDING)
+    full_label_image = full_label_image[start_y:, start_x:]
+
+    existing_rois = roi_storage.load_roi_json_data()
+
+    updated_rois = create_roi_gui(full_label_image, existing_rois)
+    roi_storage.save_roi_json_data(updated_rois)
