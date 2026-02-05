@@ -1,7 +1,9 @@
 import os
 import cv2
+from ROIStorage import ROIStorage, ROICollection
+
 def create_roi_gui(full_image: cv2.Mat | None,
-                   roi_coordinates: dict[str, tuple[int, int, int, int]] | None = None ) -> dict[str, tuple[int, int, int, int]]:
+                   roi_collection: ROICollection) -> ROICollection:
 
     assert full_image is not None, "Full label image is not loaded."
     
@@ -11,13 +13,18 @@ def create_roi_gui(full_image: cv2.Mat | None,
     max_scale = 10.0
     pan_x = 0
     pan_y = 0
-    
+
+    roi_modes = ["text_regions", "barcode_regions"]  
+    colors = [(0, 255, 0), (0, 0, 255)]  # Green for text, Blue for barcode
+    current_mode_index = 0
+    roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
+
     clone = full_image.copy()
-    roi_coordinates = roi_coordinates.copy()
     drawing = False
     ix = iy = -1
     curr_x = curr_y = -1  # Track current mouse position
     pending = []  # list of (img_x0, img_y0, img_x1, img_y1) in image coordinates
+    change_stack = []
     
     panning = False
     pan_start_x = pan_start_y = 0
@@ -128,22 +135,25 @@ def create_roi_gui(full_image: cv2.Mat | None,
     print("  Right-click-drag: Pan")
     print("  Mouse wheel: Zoom in/out")
     print("  +/-: Zoom in/out (keyboard)")
-    print("  r: Reset")
+    print("  u: Undo last ROI")
+    print("  1: Switch to text_regions mode")
+    print("  2: Switch to barcode_regions mode")
     print("  q/ESC: Finish")
 
     while True:
         # Generate display with zoom/pan
         display = get_display_image()
+        color = colors[current_mode_index]
         
         # Draw existing ROIs in display space
         for (x0, y0, x1, y1) in roi_coordinates.values():
             disp_x0, disp_y0 = image_to_display_coords(x0, y0)
             disp_x1, disp_y1 = image_to_display_coords(x1, y1)
-            cv2.rectangle(display, (disp_x0, disp_y0), (disp_x1, disp_y1), (0, 255, 0), 2)
+            cv2.rectangle(display, (disp_x0, disp_y0), (disp_x1, disp_y1), color, 2)
         
         # Draw current rectangle being drawn
         if drawing and curr_x >= 0 and curr_y >= 0:
-            cv2.rectangle(display, (ix, iy), (curr_x, curr_y), (0, 255, 0), 2)
+            cv2.rectangle(display, (ix, iy), (curr_x, curr_y), color, 2)
         
         # If there are pending ROIs, ask for a name
         if pending:
@@ -156,8 +166,9 @@ def create_roi_gui(full_image: cv2.Mat | None,
             if not name:
                 name = default_name
             roi_coordinates[name] = (x0, y0, x1, y1)
+            roi_collection[roi_modes[current_mode_index]] = roi_coordinates
             # Draw permanent rectangle on clone in image coordinates
-            cv2.rectangle(clone, (x0, y0), (x1, y1), (0, 255, 0), 2)
+            cv2.rectangle(clone, (x0, y0), (x1, y1), color, 2)
             print(f"Added ROI '{name}': (x={x0}, y={y0}, x2={x1}, y2={y1})")
 
         # Show zoom level
@@ -167,13 +178,25 @@ def create_roi_gui(full_image: cv2.Mat | None,
         cv2.imshow(window_name, display)
         key = cv2.waitKey(20) & 0xFF
         
-        if key == ord('r'):
-            clone = full_image.copy()
-            roi_coordinates.clear()
-            pending.clear()
-            scale = 1.0
-            pan_x = pan_y = 0
-            print("Cleared all ROIs.")
+        if key == ord('u'):
+            if roi_coordinates:
+                last_roi_name = list(roi_coordinates.keys())[-1]
+                del roi_coordinates[last_roi_name]
+                roi_collection[roi_modes[current_mode_index]] = roi_coordinates
+                clone = full_image.copy()
+                print(f"Undid last ROI: {last_roi_name}")
+        elif key == ord('1'):
+            if current_mode_index != 0:
+                clone = full_image.copy()
+                current_mode_index = 0
+                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
+                print("Switched to text_regions mode.")
+        elif key == ord('2'):
+            if current_mode_index != 1:
+                clone = full_image.copy()
+                current_mode_index = 1
+                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
+                print("Switched to barcode_regions mode.")
         elif key == ord('q') or key == 27:
             break
         elif key == ord('+') or key == ord('='):
@@ -182,17 +205,16 @@ def create_roi_gui(full_image: cv2.Mat | None,
             scale = max(min_scale, scale / 1.2)
 
     cv2.destroyWindow(window_name)
-    return roi_coordinates
+    return roi_collection
 
 if __name__ == "__main__":
     from ImageProcessor import ImageProcessor
-    from ROIStorage import ROIStorage
     import dotenv
     dotenv.load_dotenv()
     PADDING = int(os.getenv("PADDING"))
 
     label_scan_pdf_path = "../label_scans/M333023W146.pdf"
-    roi_json_path = "./roi_data/label_146_rois.json"
+    roi_json_path = "./roi_data/test.json"
 
     image_processor = ImageProcessor()
     full_label_image = image_processor.convert_pdf_to_image(label_scan_pdf_path)
