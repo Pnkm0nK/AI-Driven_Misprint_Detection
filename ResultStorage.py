@@ -4,12 +4,12 @@ import json
 class ResultStorage:
 
     def __init__(self, extracted_texts: dict[str, str],
-                gt_texts_path: str = None,
+                gt_file_path: str = None,
                 extracted_barcodes: dict[str, str]| None = None):
         self.extracted_texts = extracted_texts
         self.extracted_barcodes = extracted_barcodes    
         try:
-            with open(gt_texts_path, 'r', encoding='utf-8') as f:
+            with open(gt_file_path, 'r', encoding='utf-8') as f:
                 gt_data = json.load(f)
                 self.gt_texts = gt_data["text_regions"]
                 self.gt_barcodes = gt_data["barcode_regions"] 
@@ -70,10 +70,23 @@ class ResultStorage:
         for roi_name, text in self.extracted_texts.items():
             self.summary_text += f"--- Region: {roi_name} ---\n"
             self.summary_text += text + "\n\n"
-        self.summary_text += "\n\nExtracted Barcodes:\n"
-        for roi_name, text in self.extracted_barcodes.items():
-            self.summary_text += f"--- Barcode: {roi_name} ---\n"
-            self.summary_text += text + "\n\n"
+        if self.extracted_barcodes:
+            self.summary_text += "\n\nExtracted Barcodes:\n"
+            for roi_name, text in self.extracted_barcodes.items():
+                self.summary_text += f"--- Barcode: {roi_name} ---\n"
+                self.summary_text += text + "\n\n"
+    
+    def add_text_mismatches_to_summary(self):
+        if not self.gt_texts:
+            print("Ground truth texts not provided. Cannot add text mismatches to summary.")
+            return
+        self.summary_text += "\n\nText Mismatches:\n"
+        for roi_name, gt_text in self.gt_texts.items():
+            pred_text = self.extracted_texts.get(roi_name, "")
+            if pred_text != gt_text:
+                self.summary_text += f"--- Region: {roi_name} ---\n"
+                self.summary_text += f"Ground Truth: {gt_text}\n"
+                self.summary_text += f"Extracted Text: {pred_text}\n\n"
     
     def add_metric_info_to_summary(self):
         lines = ["Metric summary:"]
@@ -81,13 +94,13 @@ class ResultStorage:
             lines.append(f"{metric_name}: {metric_value}")
         self.summary_text = "\n".join(lines)
 
-    def generate_summary(self, summary_name: str, output_dir: str, verbose: bool = False, json_output: bool = True):
+    def generate_summary(self, summary_name: str, output_dir: str, verbose: bool = True, json_output: bool = True):
         print(f"Generating summary for {summary_name}...")
         self.add_cer_metric()
         self.add_barcode_reading_accuracy_metric()
         self.add_metric_info_to_summary()
         if verbose:
-            self.add_extracted_texts_to_summary()
+            self.add_text_mismatches_to_summary()
         self.save_summary_to_txt(output_txt_path=f"{output_dir}/{summary_name}.txt")
         if json_output:
             self.save_extracted_texts_to_json(output_json_path=f"{output_dir}/{summary_name}.json")
