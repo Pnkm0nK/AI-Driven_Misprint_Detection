@@ -2,6 +2,7 @@ import os
 import cv2
 import dotenv
 import pdf2image
+from utils import get_template_matching_results, convert_to_greyscale
 import numpy as np
 
 class ImageProcessor():
@@ -17,9 +18,26 @@ class ImageProcessor():
             np.array(images[0]), cv2.COLOR_RGB2BGR
         ) 
 
+    def ensure_correct_orientation(self, image: np.ndarray, template_image_path: str) -> np.ndarray:
+        '''
+        Checks if the image is in correct orientation and
+        not flipped upside down. 
+        '''
+        height, width = image.shape[:2]
+        if height < width:
+            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            
+        min_val_trial_1, loc = get_template_matching_results(image, template_image_path)
+        upside_down_image = cv2.rotate(image, cv2.ROTATE_180)
+        min_val_trial_2, loc = get_template_matching_results(upside_down_image, template_image_path)
+        if min_val_trial_1 < min_val_trial_2:
+            return image
+
+        return upside_down_image
+
     def preprocess_image_general(self, image: np.ndarray) -> np.ndarray:
         # General preprocessing: convert to grayscale and apply binary thresholding
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = convert_to_greyscale(image) 
         # _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return gray
     
@@ -55,5 +73,25 @@ class Type151ImageProcessor(ImageProcessor):
     def preprocess_small_label(self, image: np.ndarray) -> np.ndarray:
         image = cv2.rotate(image, cv2.ROTATE_180)
         return self.preprocess_image_general(image)
+
+class Type063ImageProcessor(ImageProcessor):
+    def __init__(self):
+        super().__init__()
+    def ensure_correct_orientation(self, image, template_image_path):
+        height, width = image.shape[:2]
+        if height > width:
+            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            
+        min_val_trial_1, loc = get_template_matching_results(image, template_image_path)
+        upside_down_image = cv2.rotate(image, cv2.ROTATE_180)
+        min_val_trial_2, loc = get_template_matching_results(upside_down_image, template_image_path)
+        if min_val_trial_1 < min_val_trial_2:
+            return image
+
+        return upside_down_image
+
+    def preprocess_large_label(self, image):
+        return self.preprocess_image_general(image)
+        
     
         

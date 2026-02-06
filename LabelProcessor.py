@@ -25,6 +25,7 @@ class LabelProcessor:
 
         # get image from scan
         self.image_processor = image_processor
+        template_image_path = "./images/logo_template.jpg"
         self.full_label_image = self.image_processor.convert_pdf_to_image(label_scan_pdf_path)
 
         # get ROIs and establish starting position anchor point
@@ -33,7 +34,7 @@ class LabelProcessor:
 
         # crop image to start from anchor point
         start_x, start_y =self.roi_storage.establish_roi_starting_position(
-            template_image_path="./images/logo_template.jpg", padding_x=PADDING)
+            template_image_path=template_image_path, padding_x=PADDING)
         self.full_label_image = self.full_label_image[start_y:, start_x:]
 
         self.roi_coordinates = self.roi_storage.load_roi_json_data()
@@ -158,4 +159,4 @@ if __name__ == "__main__":
                             gt_texts_path="./ground_truth/label_146_texts_gt.json",
                             extracted_barcodes=processor.get_extracted_barcodes()
                             )
-    results.generate_summary(summary_name="label_146_new_barcode", output_dir="./results") 
+    results.generate_summary(summary_name="label_146_rotation", output_dir="./results") 
