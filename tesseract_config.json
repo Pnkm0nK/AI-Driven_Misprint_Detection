@@ -1,0 +1,9 @@
+{
+    "lot": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "ref": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789",
+    "size": "--oem 3 --psm 7",
+    "subscript": "--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789()ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "date": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789-",
+    "qty": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789()ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "default": "--oem 3 --psm 6"
+}

@@ -1,4 +1,5 @@
 import cv2
+import json
 from matplotlib import image
 import numpy as np
 import os
@@ -22,6 +23,10 @@ class LabelProcessor:
                 image_processor: ImageProcessor = ImageProcessor()):
         dotenv.load_dotenv()
         pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_PATH")
+        
+        with open("./tesseract_config.json", 'r') as f:
+            self.tesseract_config = json.load(f)
+        
 
         # get image from scan
         self.image_processor = image_processor
@@ -52,11 +57,16 @@ class LabelProcessor:
         preprocessed_image = preprocess_method(image)
         return preprocessed_image
 
-    def _extract_text_from_region_image(self, region_image: np.ndarray) -> str:
+    def _extract_text_from_region_image(self, region_image: np.ndarray, config) -> str:
         # Perform OCR using pytesseract
-        custom_config = str(r'--oem 3 --psm 6')  # OEM 3: Default, PSM 6: Assume a single uniform block of text
-        text = pytesseract.image_to_string(region_image, config=custom_config)
+        text = pytesseract.image_to_string(region_image, config=config)
         return text.strip()
+    
+    def _select_tesseract_config_for_roi(self, roi_name: str) -> str:
+        for key in self.tesseract_config.keys():
+            if key in roi_name:
+                return self.tesseract_config[key]
+        return self.tesseract_config["default"]
 
     def _extract_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
@@ -70,7 +80,8 @@ class LabelProcessor:
 
         region_texts = {}
         for roi_name, img in self.text_region_images.items():
-            region_texts[roi_name] = self._extract_text_from_region_image(img)
+            config = self._select_tesseract_config_for_roi(roi_name)
+            region_texts[roi_name] = self._extract_text_from_region_image(img, config=config)
         return region_texts
     
     def get_extracted_texts(self) -> dict[str, str]:
@@ -150,13 +161,13 @@ class LabelProcessor:
         cv2.destroyAllWindows()
     
 if __name__ == "__main__":
-    image_processor = ImageProcessor()
-    processor = LabelProcessor("../label_scans/M333023W146.pdf",
-                               "./roi_data/label_146_rois.json",
+    image_processor = Type151ImageProcessor()
+    processor = LabelProcessor("../label_scans/M333023W151.pdf",
+                               "./roi_data/label_151_rois.json",
                                 image_processor=image_processor)
     processor.display_all_region_images()
     results = ResultStorage(extracted_texts=processor.get_extracted_texts(),
-                            gt_texts_path="./ground_truth/label_146_texts_gt.json",
+                            gt_file_path="./ground_truth/label_151_gt.json",
                             extracted_barcodes=processor.get_extracted_barcodes()
                             )
-    results.generate_summary(summary_name="label_146_rotation", output_dir="./results") 
+    results.generate_summary("label_151_tesseract_config", "./results")
