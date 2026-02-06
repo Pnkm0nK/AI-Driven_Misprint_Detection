@@ -12,6 +12,11 @@ from ROIStorage import ROIStorage
 from ResultStorage import ResultStorage
 
 class LabelProcessor:
+    '''
+    Class for e2e processing of label scans.
+    Use get_extracted_texts() and get_extracted_barcodes() to retrieve results after processing.
+    display_all_region_images() can be used to visualize the extracted region images and their OCR results.
+    '''
     def __init__(self, label_scan_pdf_path: str,
                 roi_json_path: str,
                 image_processor: ImageProcessor = ImageProcessor()):
@@ -25,9 +30,10 @@ class LabelProcessor:
         # get ROIs and establish starting position anchor point
         PADDING = int(os.getenv("PADDING"))
         self.roi_storage = ROIStorage(self.full_label_image, roi_json_path=roi_json_path)
+
+        # crop image to start from anchor point
         start_x, start_y =self.roi_storage.establish_roi_starting_position(
             template_image_path="./images/logo_template.jpg", padding_x=PADDING)
-        # crop image to start from anchor point
         self.full_label_image = self.full_label_image[start_y:, start_x:]
 
         self.roi_coordinates = self.roi_storage.load_roi_json_data()
@@ -148,8 +154,8 @@ if __name__ == "__main__":
                                "./roi_data/label_146_rois.json",
                                 image_processor=image_processor)
     processor.display_all_region_images()
-    results = ResultStorage(processor.get_extracted_texts(),
+    results = ResultStorage(extracted_texts=processor.get_extracted_texts(),
                             gt_texts_path="./ground_truth/label_146_texts_gt.json",
                             extracted_barcodes=processor.get_extracted_barcodes()
                             )
-    results.generate_summary(summary_name="label_146_barcode", output_dir="./results") 
+    results.generate_summary(summary_name="label_146_new_barcode", output_dir="./results") 

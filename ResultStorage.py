@@ -10,11 +10,13 @@ class ResultStorage:
         self.extracted_barcodes = extracted_barcodes    
         try:
             with open(gt_texts_path, 'r', encoding='utf-8') as f:
-                gt_texts = json.load(f)
+                gt_data = json.load(f)
+                self.gt_texts = gt_data["text_regions"]
+                self.gt_barcodes = gt_data["barcode_regions"] 
         except (FileNotFoundError, TypeError):
-            gt_texts = None
+            self.gt_texts = None
+            self.gt_barcodes = None
         
-        self.gt_texts = gt_texts
         self.metrics: dict[str, str] = {}
         self.summary_text: str = ""
     
@@ -23,12 +25,16 @@ class ResultStorage:
             f.write(self.summary_text)
 
     def save_extracted_texts_to_json(self, output_json_path: str):
-        extracted_data = self.extracted_texts.copy()
-        extracted_data.update(self.extracted_barcodes or {})
+        extracted_data = {}
+        extracted_data["text_regions"]= self.extracted_texts
+        extracted_data["barcode_regions"] = self.extracted_barcodes if self.extracted_barcodes else {}
         with open(output_json_path, 'w', encoding='utf-8') as f:
             json.dump(extracted_data, f, indent=4, ensure_ascii=False)
     
     def add_cer_metric(self):
+        if not self.extracted_texts:
+            print("No extracted texts to evaluate.")
+            return
         if not self.gt_texts:
             print("Ground truth texts not provided. Cannot calculate CER.")
             return
@@ -46,10 +52,13 @@ class ResultStorage:
         if not self.extracted_barcodes:
             print("No extracted barcodes to evaluate.")
             return
+        if not self.gt_barcodes:
+            print("Ground truth barcodes not provided. Cannot calculate barcode reading accuracy.")
+            return
         correct_count = 0
         total_count = len(self.extracted_barcodes)
         for roi_name, barcode_text in self.extracted_barcodes.items():
-            if roi_name in self.gt_texts and barcode_text == self.gt_texts[roi_name]:
+            if roi_name in self.gt_barcodes and barcode_text == self.gt_barcodes[roi_name]:
                 correct_count += 1
         accuracy = correct_count / total_count if total_count > 0 else 0
         formatted_accuracy = f"Correctly read {correct_count}/{total_count}; Accuracy:({accuracy*100:.1f}%)"
