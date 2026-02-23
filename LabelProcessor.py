@@ -1,6 +1,5 @@
 import cv2
 import json
-from matplotlib import image
 import numpy as np
 import os
 import pytesseract
@@ -8,9 +7,11 @@ import dotenv
 import zxingcpp as zxing
 from PIL import Image, ImageDraw, ImageFont
 
-from ImageProcessor import ImageProcessor, Type151ImageProcessor
+from ImageProcessor import ImageProcessor, Type151ImageProcessor, Type146ImageProcessor, Type063ImageProcessor
 from ROIStorage import ROIStorage
 from ResultStorage import ResultStorage
+
+
 
 class LabelProcessor:
     '''
@@ -18,29 +19,42 @@ class LabelProcessor:
     Use get_extracted_texts() and get_extracted_barcodes() to retrieve results after processing.
     display_all_region_images() can be used to visualize the extracted region images and their OCR results.
     '''
-    def __init__(self, label_scan_pdf_path: str,
+    def __init__(self, scan_path: str,
                 roi_json_path: str,
                 image_processor: ImageProcessor = ImageProcessor()):
+        '''
+        Class for e2e processing of label scans.
+        :param scan_path: path to pdf or image file of label scan 
+        :type scan_path: str
+        :param roi_json_path: path to json file containing roi coordinates
+        :type roi_json_path: str
+        :param image_processor: instance of ImageProcessor to use for image processing tasks. If not provided, a default ImageProcessor will be used.
+        :type image_processor: ImageProcessor
+        '''
         dotenv.load_dotenv()
         pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_PATH")
         
         with open("./tesseract_config.json", 'r') as f:
             self.tesseract_config = json.load(f)
         
-
-        # get image from scan
         self.image_processor = image_processor
         template_image_path = "./images/logo_template.jpg"
-        self.full_label_image = self.image_processor.convert_pdf_to_image(label_scan_pdf_path)
 
-        # get ROIs and establish starting position anchor point
+        # get image from scan
+        if scan_path.lower().endswith(".pdf"):
+            self.full_label_image = self.image_processor.convert_pdf_to_image(scan_path)
+        elif scan_path.lower().endswith((".jpg", ".jpeg", ".png")):
+            self.full_label_image = cv2.imread(scan_path)
+
+        # Align image to template
         PADDING = int(os.getenv("PADDING"))
-        self.roi_storage = ROIStorage(self.full_label_image, roi_json_path=roi_json_path)
+        self.full_label_image = self.image_processor.align_image(self.full_label_image, template_image_path, padding=PADDING)
+
+        self.roi_storage = ROIStorage(img_h=self.full_label_image.shape[0],
+                                      img_w=self.full_label_image.shape[1],
+                                      roi_json_path=roi_json_path)
 
         # crop image to start from anchor point
-        start_x, start_y =self.roi_storage.establish_roi_starting_position(
-            template_image_path=template_image_path, padding_x=PADDING)
-        self.full_label_image = self.full_label_image[start_y:, start_x:]
 
         self.roi_coordinates = self.roi_storage.load_roi_json_data()
 
@@ -84,25 +98,21 @@ class LabelProcessor:
             region_texts[roi_name] = self._extract_text_from_region_image(img, config=config)
         return region_texts
     
-    def get_extracted_texts(self) -> dict[str, str]:
-        return self.region_texts
-    
-    def get_extracted_barcodes(self) -> dict[str, str]:
-        return self.region_barcodes
-    
     def _extract_all_barcodes(self) -> dict[str, list]:
         assert self.barcode_images, "Barcode images have not been extracted."
 
         barcode_results = {}
         for roi_name, img in self.barcode_images.items():
-            barcodes = zxing.read_barcodes(img)
+            barcodes = zxing.read_barcodes(img,
+                                           formats=zxing.BarcodeFormat.LinearCodes | zxing.BarcodeFormat.DataMatrix,
+                                           return_errors=True,
+                                           try_rotate=False)
             barcode_results[roi_name] = barcodes[0].text if barcodes else str("")
         return barcode_results
 
     @staticmethod 
     def _display_region_image(roi_name: str, image: np.ndarray, result: str):
             image = Image.fromarray(image)
-            image = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
             image = image.convert("RGB")
 
             padding_y = 10
@@ -150,6 +160,12 @@ class LabelProcessor:
             image_np = np.array(new_image)
             cv2.imshow(roi_name, image_np)
 
+    def get_extracted_texts(self) -> dict[str, str]:
+        return self.region_texts
+    
+    def get_extracted_barcodes(self) -> dict[str, str]:
+        return self.region_barcodes
+
     def display_all_region_images(self):
         for roi_name, image in self.text_region_images.items():
             if roi_name in self.region_texts:
@@ -159,15 +175,31 @@ class LabelProcessor:
                 self._display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+
+class LabelFactory:
+    @staticmethod
+    def create_label_processor(type: str, scan_path: str) -> LabelProcessor:
+        if type == "151":
+            image_processor = Type151ImageProcessor()
+            roi_json_path = "./roi_data/label_151_rois.json"
+        elif type == "146":
+            image_processor = Type146ImageProcessor()
+            roi_json_path = "./roi_data/label_146_rois.json"
+        elif type == "063":
+            image_processor = Type063ImageProcessor()
+            roi_json_path = "./roi_data/label_063_rois.json"
+        else:
+            raise ValueError(f"Unsupported label type: {type}")
+
+        
+        return LabelProcessor(scan_path, roi_json_path, image_processor=image_processor)
     
 if __name__ == "__main__":
-    image_processor = Type151ImageProcessor()
-    processor = LabelProcessor("../label_scans/M333023W151.pdf",
-                               "./roi_data/label_151_rois.json",
-                                image_processor=image_processor)
+    label_type = "146"
+    processor = LabelFactory.create_label_processor(type=label_type, scan_path="./images/W146.jpg")
     processor.display_all_region_images()
     results = ResultStorage(extracted_texts=processor.get_extracted_texts(),
-                            gt_file_path="./ground_truth/label_151_gt.json",
+                            gt_file_path=f"./ground_truth/label_{label_type}_gt.json",
                             extracted_barcodes=processor.get_extracted_barcodes()
                             )
-    results.generate_summary("label_151_tesseract_config", "./results")
+    results.generate_summary(f"{label_type}_unsharp+resized_results", "./results")

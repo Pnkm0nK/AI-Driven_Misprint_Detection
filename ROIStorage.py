@@ -8,11 +8,9 @@ type ROIObject =  dict[str, CoordinatesNormXYXY] | dict[str, CoordinatesXYXY]
 type ROICollection = dict[str, ROIObject]
 
 class ROIStorage:
-    def __init__(self, full_label_image: np.ndarray, roi_json_path: str):
-        assert full_label_image is not None, "Full label image must be provided."
-        self.full_label_image: np.ndarray = full_label_image
-
-        self.img_h, self.img_w = full_label_image.shape[:2]
+    def __init__(self, img_w: int, img_h: int, roi_json_path: str):
+        self.img_h = img_h
+        self.img_w = img_w
 
         self.roi_json_path = roi_json_path
 
@@ -63,15 +61,3 @@ class ROIStorage:
             rois[roi_category] = self.denormalize_roi_coordinates(roi, self.img_w, self.img_h)
  
         return rois
-
-    def establish_roi_starting_position(self, template_image_path: str, padding_x:int)-> tuple[int, int]:
-        # Use template matching to find starting position
-        # reference for ROIs
-        image = cv2.cvtColor(self.full_label_image, cv2.COLOR_BGR2GRAY)
-        template_image = cv2.imread(template_image_path, cv2.IMREAD_GRAYSCALE)
-        assert template_image is not None, "Template image not found or could not be loaded."
- 
-        # find normalized least square difference between template and full image
-        res = cv2.matchTemplate(image,template_image,cv2.TM_SQDIFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        return (min_loc[0] - padding_x, min_loc[1])  # top-left corner of matched region

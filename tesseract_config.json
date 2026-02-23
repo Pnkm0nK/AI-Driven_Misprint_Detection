@@ -1,7 +1,7 @@
 {
     "lot": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHJKLMNPQRSTUVWXYZ",
-    "ref": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789",
-    "size": "--oem 3 --psm 7",
+    "ref": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "size": "--oem 3 --psm 7 -c tessedit_char_blacklist=(){}[]",
     "subscript": "--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789()ABCDEFGHJKLMNPQRSTUVWXYZ",
     "date": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789-",
     "qty": "--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789()ABCDEFGHJKLMNPQRSTUVWXYZ",
