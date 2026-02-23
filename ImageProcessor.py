@@ -1,4 +1,5 @@
 import os
+import time
 import cv2
 import dotenv
 import pdf2image
@@ -31,6 +32,13 @@ class ImageProcessor():
         image = cv2.warpAffine(image, rot_mat, (image.shape[1],image.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255,255,255))
         return image
     
+    def get_templates(self) -> dict[str, str]:
+        return {
+            "151": "./images/W151_aligned.jpg",
+            "146": "./images/W146_aligned.jpg",
+            "063": "./images/063_page_0.jpg"
+        }
+    
     def align_image(self, image: np.ndarray, template_image_path: str, padding=20) -> np.ndarray:
         '''
         Align the input image to the template image using deskewing and template matching. Returns the aligned image.
@@ -50,7 +58,65 @@ class ImageProcessor():
         blurred = cv2.GaussianBlur(image, kernel_size, sigma)
         sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, threshold)
         return sharpened
+    
+    def orb_align_and_clasify(self, image: np.ndarray, n_features:int=250, max_matches: int = 15, visualize=False) -> tuple[str, np.ndarray]:
 
+        def align_using_orb_matches(matches, dst_kps, template):
+            if len(matches) >= 4:
+                src_pts = np.float32([src_kps[m.queryIdx].pt for m in matches]).reshape(-1,1,2)
+                dst_pts = np.float32([dst_kps[m.trainIdx].pt for m in matches]).reshape(-1,1,2)
+                
+                # No perspective change, using affine transform for deskewing and translation correction
+                M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
+                
+                return cv2.warpAffine(original_image, M, (template.shape[1], template.shape[0]))
+        
+        original_image = image.copy()
+        image = convert_to_greyscale(image)
+
+        orb = cv2.ORB_create(nfeatures=n_features)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+        src_kps, query_descrs = orb.detectAndCompute(image, None)
+
+        # go through templates and find best match based on total distance of top matches
+        # save intermediate results to reuse in alignment step and visualization
+        least_distance = float("inf") 
+        estimated_template_name = None
+        best_matches = []
+        best_dst_kps = []
+
+        for template_name, template_img_path in self.get_templates().items():
+            template = cv2.imread(template_img_path, cv2.IMREAD_GRAYSCALE)
+            dst_kps, target_descrs = orb.detectAndCompute(template, None)
+            # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
+            matches = bf.match(query_descrs, target_descrs)
+            matches = sorted(matches, key=lambda x: x.distance)
+            top = matches[:min(max_matches, len(matches))]
+            total_distance = sum(m.distance for m in top) if top else float("inf")
+
+            if total_distance < least_distance:
+                least_distance = total_distance
+                estimated_template_name = template_name
+                best_dst_kps = dst_kps
+                best_matches = top
+
+        best_template = cv2.imread(self.get_templates()[estimated_template_name], cv2.IMREAD_GRAYSCALE) 
+        aligned_image = align_using_orb_matches(best_matches, best_dst_kps, best_template)
+
+        if visualize:
+            # reload template in color for visualization only
+            img_match = cv2.drawMatches(image, src_kps, best_template, best_dst_kps, best_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+            height, width = img_match.shape[:2]
+            aspect_ratio = width / height
+            width = 800
+            height = int(width / aspect_ratio)
+            img_match = cv2.resize(img_match, (width, height))
+
+            cv2.imshow("Matches", img_match)
+            cv2.waitKey(0)
+        return estimated_template_name, aligned_image
+    
     def preprocess_image_general(self, image: np.ndarray) -> np.ndarray:
         # General preprocessing: convert to grayscale 
         gray = convert_to_greyscale(image) 
@@ -123,3 +189,11 @@ if __name__ == "__main__":
     # images = processor.convert_multipage_pdf_to_image("../label_scans/0400063.pdf")
     # for i, img in enumerate(images):
     #     cv2.imwrite(f"./images/063_page_{i}.jpg", img)
+    image_path = ["./images/W151.jpg", "./images/W146.jpg", "./images/063_page_0.jpg"]
+    time_start = time.time()
+    for path in image_path:
+        image = cv2.imread(path)
+        name, aligned = processor.orb_align_and_clasify(image, visualize=True, n_features=30, max_matches=10)
+        cv2.imwrite(f"./images/{name}_aligned_orb.jpg", aligned)
+    time_end = time.time()
+    print(f"Estimated template: {name}, Alignment took {time_end - time_start:.3f} seconds")

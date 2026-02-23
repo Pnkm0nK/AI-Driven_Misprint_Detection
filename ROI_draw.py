@@ -1,5 +1,6 @@
 import os
 import cv2
+from ImageProcessor import Type151ImageProcessor
 from ROIStorage import ROIStorage, ROICollection
 
 def create_roi_gui(full_image: cv2.Mat | None,
@@ -213,19 +214,17 @@ if __name__ == "__main__":
     dotenv.load_dotenv()
     PADDING = int(os.getenv("PADDING"))
 
-    label_scan_pdf_path = "../label_scans/M333023W146.pdf"
-    roi_json_path = "./roi_data/test.json"
+    # label_scan_pdf_path = "../label_scans/M333023W146.pdf"
+    image_path = "./images/W151.jpg"
+    roi_json_path = "./roi_data/label_151_rois.json"
 
     image_processor = ImageProcessor()
-    full_label_image = image_processor.convert_pdf_to_image(label_scan_pdf_path)
+    img = cv2.imread(image_path)
+    img = image_processor.align_image(img, template_image_path="./images/logo_template.jpg", padding=PADDING)
 
-    roi_storage = ROIStorage(full_label_image, roi_json_path=roi_json_path)
-
-    start_x, start_y = roi_storage.establish_roi_starting_position(
-        template_image_path="./images/logo_template.jpg", padding_x=PADDING)
-    full_label_image = full_label_image[start_y:, start_x:]
+    roi_storage = ROIStorage(img.shape[1], img.shape[0], roi_json_path=roi_json_path)
 
     existing_rois = roi_storage.load_roi_json_data()
 
-    updated_rois = create_roi_gui(full_label_image, existing_rois)
+    updated_rois = create_roi_gui(img, existing_rois)
     roi_storage.save_roi_json_data(updated_rois)
