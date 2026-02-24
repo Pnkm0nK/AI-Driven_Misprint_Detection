@@ -5,15 +5,15 @@ import json
 
 class ResultStorage:
     def __init__(self, results: LabelResult):
-        self.extracted_texts = results.get_extracted_texts()
-        self.extracted_barcodes = results.get_extracted_barcodes()    
+        self.extracted_texts: dict[str, str] = {k: v.lower() for k, v in results.get_extracted_texts().items()}
+        self.extracted_barcodes: dict[str, str] = results.get_extracted_barcodes()    
         gt_file_path = config.GT_FILES.get(results.template_name, None)
 
         try:
             with open(gt_file_path, 'r', encoding='utf-8') as f:
                 gt_data = json.load(f)
-                self.gt_texts = gt_data["text_regions"]
-                self.gt_barcodes = gt_data["barcode_regions"] 
+                self.gt_texts: dict[str, str] = {k: v.lower() for k, v in gt_data["text_regions"].items()}
+                self.gt_barcodes: dict[str, str] = gt_data["barcode_regions"] 
         except (FileNotFoundError, TypeError):
             self.gt_texts = None
             self.gt_barcodes = None

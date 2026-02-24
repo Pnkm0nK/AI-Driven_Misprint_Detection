@@ -82,10 +82,10 @@ class LabelResult:
         return self.region_barcodes
 
     def display_all_region_images(self):
-        for roi_name, image in self.text_region_images.items():
+        for roi_name, image in self._text_region_images.items():
             if roi_name in self.region_texts:
                 self._display_region_image(roi_name, image, result=self.region_texts[roi_name])
-        for roi_name, image in self.barcode_images.items():
+        for roi_name, image in self._barcode_images.items():
             if roi_name in self.region_barcodes:
                 self._display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
         cv2.waitKey(0)

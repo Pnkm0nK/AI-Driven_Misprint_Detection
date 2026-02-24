@@ -5,7 +5,6 @@ import os
 import pytesseract
 import dotenv
 import zxingcpp as zxing
-from PIL import Image, ImageDraw, ImageFont
 
 from ImageProcessor import ImageProcessor
 from LabelResult import LabelResult
@@ -123,11 +122,3 @@ class LabelProcessor:
                                            try_rotate=False)
             barcode_results[roi_name] = barcodes[0].text if barcodes else str("")
         return barcode_results
-
-
-if __name__ == "__main__":
-    image_name = "W151.jpg"
-    processor = LabelProcessor()
-    results = processor.process_label(str(config.IMAGES_DIR / image_name))
-    results = ResultStorage(results)
-    results.generate_summary(f"W151_unsharp+resized_results", str(config.RESULTS_DIR))

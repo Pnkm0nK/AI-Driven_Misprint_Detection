@@ -1,5 +1,5 @@
-import os
 import cv2
+from pathlib import Path
 from ImageProcessor import Type151ImageProcessor
 from ROIStorage import ROIStorage, ROICollection
 import config
@@ -213,12 +213,14 @@ if __name__ == "__main__":
     from ImageProcessor import ImageProcessor
 
     # label_scan_pdf_path = "../label_scans/M333023W146.pdf"
-    image_path = "./images/W151.jpg"
-    roi_json_path = "./roi_data/label_151_rois.json"
+    image_name = "W151.jpg"
+    roi_file_name = "label_151_rois.json"
+    image_path = str(config.IMAGES_DIR / image_name)
+    roi_json_path = str(config.ROI_DIR / roi_file_name)
 
     image_processor = ImageProcessor()
     img = cv2.imread(image_path)
-    img = image_processor.align_image(img, template_image_path="./images/logo_template.jpg")
+    img = image_processor.align_image(img, template_image_path=str(config.IMAGES_DIR / "logo_template.jpg"))
 
     roi_storage = ROIStorage(img.shape[1], img.shape[0], roi_json_path=roi_json_path)
 

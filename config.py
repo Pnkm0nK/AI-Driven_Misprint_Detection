@@ -26,10 +26,4 @@ ROI_FILES = {
     "063": ROI_DIR / "label_063_rois.json",
 }
 
-PROCESSOR_CLASSES = {
-    "151": "Type151ImageProcessor",
-    "146": "Type146ImageProcessor",
-    "063": "Type063ImageProcessor",
-}
-
 PADDING = 20

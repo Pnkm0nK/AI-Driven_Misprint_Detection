@@ -99,7 +99,7 @@ class ImageProcessor():
         best_matches = []
         best_dst_kps = []
 
-        for template_name, template_img_path in self.get_templates().items():
+        for template_name, template_img_path in config.TEMPLATES.items():
             template = cv2.imread(template_img_path, cv2.IMREAD_GRAYSCALE)
             dst_kps, target_descrs = orb.detectAndCompute(template, None)
             # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
@@ -114,7 +114,7 @@ class ImageProcessor():
                 best_dst_kps = dst_kps
                 best_matches = top
 
-        best_template = cv2.imread(self.get_templates()[estimated_template_name], cv2.IMREAD_GRAYSCALE) 
+        best_template = cv2.imread(config.TEMPLATES[estimated_template_name], cv2.IMREAD_GRAYSCALE) 
         aligned_image = align_using_orb_matches(best_matches, best_dst_kps, best_template)
 
         if visualize:
@@ -134,11 +134,11 @@ class ImageProcessor():
         # General preprocessing: convert to grayscale 
         gray = convert_to_greyscale(image) 
         resized = cv2.resize(gray, (0,0), fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC) 
-        unsharp_image = self.unsharp(resized)
+        # unsharp_image = self.unsharp(resized)
         
         # padded = cv2.copyMakeBorder(unsharp_image, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255,255,255])
         # _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return unsharp_image
+        return resized
     
     def preprocess_top_label(self, image: np.ndarray) -> np.ndarray:
         return self.preprocess_image_general(image)
@@ -175,7 +175,7 @@ class ImageProcessor():
         :type template_name: str
         '''
 
-        cls = config.PROCESSOR_MAP.get(template_name, ImageProcessor)
+        cls = PROCESSOR_CLASSES.get(template_name, ImageProcessor)
         return cls() 
     
 class Type151ImageProcessor(ImageProcessor):
@@ -184,6 +184,9 @@ class Type151ImageProcessor(ImageProcessor):
     def preprocess_small_label(self, image: np.ndarray) -> np.ndarray:
         image = cv2.rotate(image, cv2.ROTATE_180)
         return self.preprocess_image_general(image)
+    def preprocess_patient_label(self, image):
+        image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return super().preprocess_image_general(image)
 
 class Type146ImageProcessor(ImageProcessor):
     def __init__(self):
@@ -207,7 +210,14 @@ class Type063ImageProcessor(ImageProcessor):
 
     def preprocess_large_label(self, image):
         return self.preprocess_image_general(image)
-        
+
+
+PROCESSOR_CLASSES: dict[str, type[ImageProcessor]] = {
+    "151": Type151ImageProcessor,
+    "146": Type146ImageProcessor,
+    "063": Type063ImageProcessor,
+}
+
 if __name__ == "__main__": 
     processor = ImageProcessor()
     # images = processor.convert_multipage_pdf_to_image("../label_scans/0400063.pdf")
