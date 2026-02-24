@@ -31,3 +31,5 @@ PROCESSOR_CLASSES = {
     "146": "Type146ImageProcessor",
     "063": "Type063ImageProcessor",
 }
+
+PADDING = 20
