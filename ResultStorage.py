@@ -1,13 +1,14 @@
 from metrics import calculate_character_error_rate
+from LabelResult import LabelResult
+import config
 import json
 
 class ResultStorage:
+    def __init__(self, results: LabelResult):
+        self.extracted_texts = results.get_extracted_texts()
+        self.extracted_barcodes = results.get_extracted_barcodes()    
+        gt_file_path = config.GT_FILES.get(results.template_name, None)
 
-    def __init__(self, extracted_texts: dict[str, str],
-                gt_file_path: str = None,
-                extracted_barcodes: dict[str, str]| None = None):
-        self.extracted_texts = extracted_texts
-        self.extracted_barcodes = extracted_barcodes    
         try:
             with open(gt_file_path, 'r', encoding='utf-8') as f:
                 gt_data = json.load(f)
@@ -18,7 +19,7 @@ class ResultStorage:
             self.gt_barcodes = None
         
         self.metrics: dict[str, str] = {}
-        self.summary_text: str = ""
+        self.summary_text: str = f"Label {results.template_name} Summary"
     
     def save_summary_to_txt(self, output_txt_path: str):
         with open(output_txt_path, 'w', encoding='utf-8') as f:

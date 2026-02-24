@@ -2,6 +2,7 @@ import os
 import cv2
 from ImageProcessor import Type151ImageProcessor
 from ROIStorage import ROIStorage, ROICollection
+import config
 
 def create_roi_gui(full_image: cv2.Mat | None,
                    roi_collection: ROICollection) -> ROICollection:
@@ -210,9 +211,6 @@ def create_roi_gui(full_image: cv2.Mat | None,
 
 if __name__ == "__main__":
     from ImageProcessor import ImageProcessor
-    import dotenv
-    dotenv.load_dotenv()
-    PADDING = int(os.getenv("PADDING"))
 
     # label_scan_pdf_path = "../label_scans/M333023W146.pdf"
     image_path = "./images/W151.jpg"
@@ -220,7 +218,7 @@ if __name__ == "__main__":
 
     image_processor = ImageProcessor()
     img = cv2.imread(image_path)
-    img = image_processor.align_image(img, template_image_path="./images/logo_template.jpg", padding=PADDING)
+    img = image_processor.align_image(img, template_image_path="./images/logo_template.jpg")
 
     roi_storage = ROIStorage(img.shape[1], img.shape[0], roi_json_path=roi_json_path)
 

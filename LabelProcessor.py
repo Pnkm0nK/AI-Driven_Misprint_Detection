@@ -7,62 +7,76 @@ import dotenv
 import zxingcpp as zxing
 from PIL import Image, ImageDraw, ImageFont
 
-from ImageProcessor import ImageProcessor, Type151ImageProcessor, Type146ImageProcessor, Type063ImageProcessor
+from ImageProcessor import ImageProcessor
+from LabelResult import LabelResult
 from ROIStorage import ROIStorage
 from ResultStorage import ResultStorage
-
-
+import config
 
 class LabelProcessor:
     '''
     Class for e2e processing of label scans.
-    Use get_extracted_texts() and get_extracted_barcodes() to retrieve results after processing.
+    Use process_label() to run the full pipeline on a given label scan(pdf or image file).
+    After processing, use get_extracted_texts() and get_extracted_barcodes() to retrieve
+    results after processing.
     display_all_region_images() can be used to visualize the extracted region images and their OCR results.
     '''
-    def __init__(self, scan_path: str,
-                roi_json_path: str,
-                image_processor: ImageProcessor = ImageProcessor()):
+    def __init__(self):
         '''
         Class for e2e processing of label scans.
-        :param scan_path: path to pdf or image file of label scan 
-        :type scan_path: str
-        :param roi_json_path: path to json file containing roi coordinates
-        :type roi_json_path: str
-        :param image_processor: instance of ImageProcessor to use for image processing tasks. If not provided, a default ImageProcessor will be used.
-        :type image_processor: ImageProcessor
         '''
         dotenv.load_dotenv()
         pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_PATH")
         
-        with open("./tesseract_config.json", 'r') as f:
+        with open(config.TESSERACT_CFG, 'r') as f:
             self.tesseract_config = json.load(f)
         
-        self.image_processor = image_processor
-        template_image_path = "./images/logo_template.jpg"
+        self.image_processor = ImageProcessor()
+    
+    def process_label(self, scan: str | np.ndarray) -> LabelResult:
+        '''
+        Performs the full processing pipeline of a label scan. This includes:
+        1. using ORB to align the label scan to a template and classify it to a template type. 
+        2. getting appropriate ROIs for the label type and extracting region images from the aligned label image.
+        3. performing suitable preprocessing on the region images based on the label type and region type (text or barcode).
+        4. performing OCR on the text region images and barcode reading on the barcode region images.
 
-        # get image from scan
-        if scan_path.lower().endswith(".pdf"):
-            self.full_label_image = self.image_processor.convert_pdf_to_image(scan_path)
-        elif scan_path.lower().endswith((".jpg", ".jpeg", ".png")):
-            self.full_label_image = cv2.imread(scan_path)
+        :param scan: Path to the label scan (pdf or image file) or an image numpy array
+        :type scan: str | np.ndarray
+        :return: Returns LabelResult object containing all extracted information and images from the label.
+        :rtype: LabelResult
+        '''
+        # get image from scan(pdf or image file)
+        if isinstance(scan, np.ndarray):
+            self.full_label_image = scan
+        elif scan.lower().endswith(".pdf"):
+            self.full_label_image = self.image_processor.convert_pdf_to_image(scan)
+        elif scan.lower().endswith((".jpg", ".jpeg", ".png")):
+            self.full_label_image = cv2.imread(scan)
+        
 
-        # Align image to template
-        PADDING = int(os.getenv("PADDING"))
-        self.full_label_image = self.image_processor.align_image(self.full_label_image, template_image_path, padding=PADDING)
+        # use orb to align the image and classify it to a template type. This will help us select the suitable image processor and ROIs for the label.
+        template_name, self.full_label_image = self.image_processor.orb_align_and_clasify(self.full_label_image)
 
-        self.roi_storage = ROIStorage(img_h=self.full_label_image.shape[0],
+        self.image_processor = self.image_processor.get_suitable_image_processor(template_name)
+        roi_json_path = config.ROI_FILES[template_name]
+
+        roi_storage = ROIStorage(img_h=self.full_label_image.shape[0],
                                       img_w=self.full_label_image.shape[1],
                                       roi_json_path=roi_json_path)
+        roi_coordinates = roi_storage.load_roi_json_data()
 
-        # crop image to start from anchor point
+        self.text_region_images: dict[str, np.ndarray] = self._extract_region_images(roi_coordinates["text_regions"])
+        region_texts: dict[str, str] = self._extract_all_region_texts()
 
-        self.roi_coordinates = self.roi_storage.load_roi_json_data()
+        self.barcode_images: dict[str, np.ndarray] = self._extract_region_images(roi_coordinates["barcode_regions"])
+        region_barcodes: dict[str, str] = self._extract_all_barcodes()
 
-        self.text_region_images: dict[str, np.ndarray] = self._extract_region_images(self.roi_coordinates["text_regions"])
-        self.region_texts: dict[str, str] = self._extract_all_region_texts()
-
-        self.barcode_images: dict[str, np.ndarray] = self._extract_region_images(self.roi_coordinates["barcode_regions"])
-        self.region_barcodes: dict[str, str] = self._extract_all_barcodes()
+        return LabelResult(template_name=template_name,
+                           region_texts=region_texts,
+                            region_barcodes=region_barcodes,
+                            text_region_images=self.text_region_images,
+                            barcode_images=self.barcode_images)
 
     def _extract_roi(self, roi_name: str, coordinates: tuple[int, int, int, int]) -> np.ndarray:
         x0, y0, x1, y1 = coordinates
@@ -110,96 +124,10 @@ class LabelProcessor:
             barcode_results[roi_name] = barcodes[0].text if barcodes else str("")
         return barcode_results
 
-    @staticmethod 
-    def _display_region_image(roi_name: str, image: np.ndarray, result: str):
-            image = Image.fromarray(image)
-            image = image.convert("RGB")
 
-            padding_y = 10
-            padding_x = 5
-            
-            display_text_region = f"Region: {roi_name}"
-            display_text_ocr_result = f"OCR Result: {result}"
-            
-            try:
-                font_title = ImageFont.truetype("AvenirNextWorld-Regular.ttf", 21)
-                font_text = ImageFont.truetype("AvenirNextWorld-Bold.ttf", 32)
-            except:
-                font_title = ImageFont.load_default()
-                font_text = ImageFont.load_default()
-            
-            # use text bboxes to expand canvas size if text doesn't fit
-            draw = ImageDraw.Draw(image)
-
-            title_bbox = draw.textbbox((0, 0), display_text_region, font=font_title)
-            text_bbox = draw.textbbox((0, 0), display_text_ocr_result, font=font_text)
-
-            title_width = title_bbox[2] - title_bbox[0]
-            title_height = title_bbox[3] - title_bbox[1]
-
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-
-            max_text_width = max(title_width, text_width)
-            
-            required_height = title_height + text_height + image.height + 4 * padding_y
-
-            required_width = max_text_width + padding_x
-            if required_width > image.width:
-                new_image = Image.new("RGB", (required_width, required_height), (255, 255, 255))
-                new_image.paste(image, (0, title_height + 2 * padding_y))
-            else:
-                new_image = Image.new("RGB", (image.width, required_height), (255, 255, 255))
-                new_image.paste(image, (0, title_height + 2 * padding_y))
-            
-            draw = ImageDraw.Draw(new_image)
-            draw.text((padding_x, padding_y), display_text_region, fill=(255, 100, 0), font=font_title)
-            draw.text((padding_x, image.height + title_height + 2 * padding_y), display_text_ocr_result, fill=(0, 100, 255), font=font_text)
-            
-            # Convert back to numpy for cv2.imshow
-            image_np = np.array(new_image)
-            cv2.imshow(roi_name, image_np)
-
-    def get_extracted_texts(self) -> dict[str, str]:
-        return self.region_texts
-    
-    def get_extracted_barcodes(self) -> dict[str, str]:
-        return self.region_barcodes
-
-    def display_all_region_images(self):
-        for roi_name, image in self.text_region_images.items():
-            if roi_name in self.region_texts:
-                self._display_region_image(roi_name, image, result=self.region_texts[roi_name])
-        for roi_name, image in self.barcode_images.items():
-            if roi_name in self.region_barcodes:
-                self._display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-class LabelFactory:
-    @staticmethod
-    def create_label_processor(type: str, scan_path: str) -> LabelProcessor:
-        if type == "151":
-            image_processor = Type151ImageProcessor()
-            roi_json_path = "./roi_data/label_151_rois.json"
-        elif type == "146":
-            image_processor = Type146ImageProcessor()
-            roi_json_path = "./roi_data/label_146_rois.json"
-        elif type == "063":
-            image_processor = Type063ImageProcessor()
-            roi_json_path = "./roi_data/label_063_rois.json"
-        else:
-            raise ValueError(f"Unsupported label type: {type}")
-
-        
-        return LabelProcessor(scan_path, roi_json_path, image_processor=image_processor)
-    
 if __name__ == "__main__":
-    label_type = "146"
-    processor = LabelFactory.create_label_processor(type=label_type, scan_path="./images/W146.jpg")
-    processor.display_all_region_images()
-    results = ResultStorage(extracted_texts=processor.get_extracted_texts(),
-                            gt_file_path=f"./ground_truth/label_{label_type}_gt.json",
-                            extracted_barcodes=processor.get_extracted_barcodes()
-                            )
-    results.generate_summary(f"{label_type}_unsharp+resized_results", "./results")
+    image_name = "W151.jpg"
+    processor = LabelProcessor()
+    results = processor.process_label(str(config.IMAGES_DIR / image_name))
+    results = ResultStorage(results)
+    results.generate_summary(f"W151_unsharp+resized_results", str(config.RESULTS_DIR))

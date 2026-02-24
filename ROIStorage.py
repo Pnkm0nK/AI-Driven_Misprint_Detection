@@ -1,6 +1,4 @@
-import cv2
 import json
-import numpy as np
 
 type CoordinatesXYXY = tuple[int, int, int, int]
 type CoordinatesNormXYXY = tuple[float, float, float, float]

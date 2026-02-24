@@ -6,14 +6,17 @@ import pdf2image
 from deskew import determine_skew
 from utils import get_template_matching_results, convert_to_greyscale
 import numpy as np
+import config
 
 class ImageProcessor():
     def __init__(self):
         dotenv.load_dotenv()
         self.poppler_path = os.getenv("POPPLER_PATH")
-
+    
     def convert_pdf_to_image(self, pdf_path: str, dpi: int = 300)-> np.ndarray:
-        # used only for single-page PDFs
+        '''
+        Convert a single-page PDF to an image using pdf2image. Returns the image as a numpy array in BGR format.
+        '''
         images = pdf2image.convert_from_path(pdf_path= pdf_path, dpi=dpi,
                                             poppler_path=self.poppler_path)
         return cv2.cvtColor(
@@ -32,20 +35,15 @@ class ImageProcessor():
         image = cv2.warpAffine(image, rot_mat, (image.shape[1],image.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255,255,255))
         return image
     
-    def get_templates(self) -> dict[str, str]:
-        return {
-            "151": "./images/W151_aligned.jpg",
-            "146": "./images/W146_aligned.jpg",
-            "063": "./images/063_page_0.jpg"
-        }
-    
-    def align_image(self, image: np.ndarray, template_image_path: str, padding=20) -> np.ndarray:
+    def align_image(self, image: np.ndarray, template_image_path: str) -> np.ndarray:
         '''
         Align the input image to the template image using deskewing and template matching. Returns the aligned image.
         '''
         deskewed = self.deskew_image(image)
 
         _, loc = get_template_matching_results(deskewed, template_image_path)
+
+        padding = config.PADDING
 
         x_start, y_start = loc 
         x_start -= padding
@@ -60,7 +58,22 @@ class ImageProcessor():
         return sharpened
     
     def orb_align_and_clasify(self, image: np.ndarray, n_features:int=250, max_matches: int = 15, visualize=False) -> tuple[str, np.ndarray]:
+        '''
+        Classify and align the input image to the best matching template using ORB feature matching.
+        Returns the estimated template name and the aligned image.
 
+        on my pc shows 0.24 seconds computation time for 30 features and 10 matches per image on average
+        
+        :param image: Input image to be aligned 
+        :type image: np.ndarray
+        :param n_features: Number of ORB features to detect
+        :type n_features: int
+        :param max_matches: Maximum number of ORB matches to consider for alignment
+        :type max_matches: int
+        :param visualize: Whether to visualize the ORB matches and alignment results
+        :return: Estimated template name and aligned image in a tuple
+        :rtype: tuple[str, np.ndarray]
+        '''
         def align_using_orb_matches(matches, dst_kps, template):
             if len(matches) >= 4:
                 src_pts = np.float32([src_kps[m.queryIdx].pt for m in matches]).reshape(-1,1,2)
@@ -153,7 +166,18 @@ class ImageProcessor():
         else:
             return self.preprocess_image_general
 
+    def get_suitable_image_processor(self, template_name: str):
+        '''Returns an instance of the suitable ImageProcessor subclass based on the template name.
+        If no specific processor is found for the template, returns a default ImageProcessor
+        instance.
 
+        :param template_name: Name of the template
+        :type template_name: str
+        '''
+
+        cls = config.PROCESSOR_MAP.get(template_name, ImageProcessor)
+        return cls() 
+    
 class Type151ImageProcessor(ImageProcessor):
     def __init__(self):
         super().__init__()
@@ -189,11 +213,13 @@ if __name__ == "__main__":
     # images = processor.convert_multipage_pdf_to_image("../label_scans/0400063.pdf")
     # for i, img in enumerate(images):
     #     cv2.imwrite(f"./images/063_page_{i}.jpg", img)
-    image_path = ["./images/W151.jpg", "./images/W146.jpg", "./images/063_page_0.jpg"]
-    time_start = time.time()
+    image_path = [str(config.IMAGES_DIR / "W151.jpg"), str(config.IMAGES_DIR / "W146.jpg"), str(config.IMAGES_DIR / "063_page_0.jpg")]
+    cumm_time = 0
+    cnt = 0
     for path in image_path:
         image = cv2.imread(path)
-        name, aligned = processor.orb_align_and_clasify(image, visualize=True, n_features=30, max_matches=10)
-        cv2.imwrite(f"./images/{name}_aligned_orb.jpg", aligned)
-    time_end = time.time()
-    print(f"Estimated template: {name}, Alignment took {time_end - time_start:.3f} seconds")
+        time_start = time.time()
+        name, aligned = processor.orb_align_and_clasify(image, n_features=30, max_matches=10)
+        cumm_time += time.time() - time_start
+        cnt += 1
+    print(f"Alignment of {cnt} images took {cumm_time:.3f} seconds")
