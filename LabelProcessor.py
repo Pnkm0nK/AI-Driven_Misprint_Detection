@@ -9,7 +9,7 @@ import zxingcpp as zxing
 from ImageProcessor import ImageProcessor
 from LabelResult import LabelResult
 from ROIStorage import ROIStorage
-from ResultStorage import ResultStorage
+from custom_types import ROICollection
 import config
 
 class LabelProcessor:
@@ -46,43 +46,77 @@ class LabelProcessor:
         :rtype: LabelResult
         '''
         # get image from scan(pdf or image file)
-        if isinstance(scan, np.ndarray):
-            self.full_label_image = scan
-        elif scan.lower().endswith(".pdf"):
-            self.full_label_image = self.image_processor.convert_pdf_to_image(scan)
-        elif scan.lower().endswith((".jpg", ".jpeg", ".png")):
-            self.full_label_image = cv2.imread(scan)
-        
+        self.full_label_image = self._handle_scan_file(scan)
 
         # use orb to align the image and classify it to a template type. This will help us select the suitable image processor and ROIs for the label.
-        template_name, self.full_label_image = self.image_processor.orb_align_and_clasify(self.full_label_image)
+        template_type, self.full_label_image = self.image_processor.orb_align_and_clasify(self.full_label_image)
 
-        self.image_processor = self.image_processor.get_suitable_image_processor(template_name)
-        roi_json_path = config.ROI_FILES[template_name]
+        # specialize image processor to the template
+        self.image_processor = self.image_processor.get_suitable_image_processor(template_type)
 
         roi_storage = ROIStorage(img_h=self.full_label_image.shape[0],
                                       img_w=self.full_label_image.shape[1],
-                                      roi_json_path=roi_json_path)
+                                      template_type=template_type)
         roi_coordinates = roi_storage.load_roi_json_data()
 
-        self.text_region_images: dict[str, np.ndarray] = self._extract_region_images(roi_coordinates["text_regions"])
+        # Crop image to label region to store less, info
+        # will be useful during defect detection by differencing template and aligned image.
+        self.full_label_image = self._extract_roi(config.LABEL_DIMENSIONS[template_type])
+
+
+        self.text_region_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["text_regions"])
         region_texts: dict[str, str] = self._extract_all_region_texts()
 
-        self.barcode_images: dict[str, np.ndarray] = self._extract_region_images(roi_coordinates["barcode_regions"])
+        self.barcode_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["barcode_regions"])
         region_barcodes: dict[str, str] = self._extract_all_barcodes()
 
-        return LabelResult(template_name=template_name,
+        return LabelResult(template_type=template_type,
+                           roi_coordinates=roi_coordinates,
                            region_texts=region_texts,
-                            region_barcodes=region_barcodes,
-                            text_region_images=self.text_region_images,
-                            barcode_images=self.barcode_images)
+                           region_barcodes=region_barcodes,
+                           text_region_images=self.text_region_images,
+                           barcode_images=self.barcode_images,
+                           aligned_image=self.full_label_image)
+    
+    def _handle_scan_file(self, scan: str | np.ndarray) -> np.ndarray:
+        '''Handles the input scan file, which can be a path to a pdf or image file,
+           or an already loaded image as a numpy array. It returns the image as a numpy array for further processing.
 
-    def _extract_roi(self, roi_name: str, coordinates: tuple[int, int, int, int]) -> np.ndarray:
+           :param scan: Path to the label scan (pdf or image file) or an image numpy array
+           :type scan: str | np.ndarray
+        '''
+        if isinstance(scan, np.ndarray):
+            return scan
+        elif scan.lower().endswith(".pdf"):
+            return self.image_processor.convert_pdf_to_image(scan)
+        elif scan.lower().endswith((".jpg", ".jpeg", ".png")):
+            return cv2.imread(scan)
+
+        raise ValueError(f"Unsupported scan file type: {scan}")
+
+
+    def _remove_variable_info_from_image(self, image:np.ndarray, roi_coordinates: ROICollection ) -> np.ndarray:
+        '''
+        Removes variable information from the image that increases differnce between template and alligned image.
+        Preprocessing step to find defects by differencing template and aligned image.
+        '''
+        cleaned_image = image.copy()
+        for roi in roi_coordinates["text_regions"].values():
+            x0, y0, x1, y1 = roi
+            cleaned_image[y0:y1, x0:x1] = 255
+        for roi in roi_coordinates["barcode_regions"].values():
+            x0, y0, x1, y1 = roi
+            cleaned_image[y0:y1, x0:x1] = 255
+        return cleaned_image
+    
+    def _calculate_image_difference(self, image1: np.ndarray, image2: np.ndarray) -> np.ndarray:
+        diff = np.sum(cv2.absdiff(image1, image2))
+        return diff
+
+    def _extract_roi(self, coordinates: tuple[int, int, int, int]) -> np.ndarray:
         x0, y0, x1, y1 = coordinates
         image = self.full_label_image[y0:y1, x0:x1]
-        preprocess_method = self.image_processor.get_suitable_preprocessing_method(roi_name)
-        preprocessed_image = preprocess_method(image)
-        return preprocessed_image
+        return image
 
     def _extract_text_from_region_image(self, region_image: np.ndarray, config) -> str:
         # Perform OCR using pytesseract
@@ -95,10 +129,11 @@ class LabelProcessor:
                 return self.tesseract_config[key]
         return self.tesseract_config["default"]
 
-    def _extract_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
+    def _extract_preprocessed_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
         for roi_name,(x0, y0, x1, y1) in roi_coordinates.items():
-            image = self._extract_roi(roi_name, (x0, y0, x1, y1))
+            image = self._extract_roi((x0, y0, x1, y1))
+            image = self.image_processor.preprocess_region_image(roi_name, image)
             region_images[roi_name] = image
         return region_images
     

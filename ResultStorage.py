@@ -1,3 +1,5 @@
+import cv2
+from utils import display_region_image
 from metrics import calculate_character_error_rate
 from LabelResult import LabelResult
 import config
@@ -7,7 +9,9 @@ class ResultStorage:
     def __init__(self, results: LabelResult):
         self.extracted_texts: dict[str, str] = {k: v.lower() for k, v in results.get_extracted_texts().items()}
         self.extracted_barcodes: dict[str, str] = results.get_extracted_barcodes()    
-        gt_file_path = config.GT_FILES.get(results.template_name, None)
+        gt_file_path = config.GT_FILES.get(results.template_type, None)
+        self._text_region_images = results._text_region_images
+        self._barcode_images = results._barcode_images
 
         try:
             with open(gt_file_path, 'r', encoding='utf-8') as f:
@@ -19,7 +23,7 @@ class ResultStorage:
             self.gt_barcodes = None
         
         self.metrics: dict[str, str] = {}
-        self.summary_text: str = f"Label {results.template_name} Summary"
+        self.summary_text: str = f"Label {results.template_type} Summary"
     
     def save_summary_to_txt(self, output_txt_path: str):
         with open(output_txt_path, 'w', encoding='utf-8') as f:
@@ -88,6 +92,30 @@ class ResultStorage:
                 self.summary_text += f"--- Region: {roi_name} ---\n"
                 self.summary_text += f"Ground Truth: {gt_text}\n"
                 self.summary_text += f"Extracted Text: {pred_text}\n\n"
+    
+    def display_regions_with_mismatches(self):
+        '''Displays region images where extracted text/barcode does not match the ground truth.'''
+        if not self.gt_texts:
+            print("Ground truth texts not provided. Cannot display regions with mismatches.")
+            return
+        for roi_name, gt_text in self.gt_texts.items():
+            pred_text = self.extracted_texts.get(roi_name, "")
+            if pred_text != gt_text:
+                region_image = self._text_region_images.get(roi_name, None)
+                if region_image is not None:
+                    display_region_image(roi_name=f"Region: {roi_name}\nGT: {gt_text}",
+                                         image=region_image,
+                                         result=pred_text)
+        for roi_name, gt_barcode in self.gt_barcodes.items():
+            pred_barcode = self.extracted_barcodes.get(roi_name, "")
+            if pred_barcode != gt_barcode:
+                barcode_image = self._barcode_images.get(roi_name, None)
+                if barcode_image is not None:
+                    display_region_image(roi_name=f"Barcode: {roi_name}\nGT: {gt_barcode}",
+                                         image=barcode_image,
+                                         result=pred_barcode)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
     
     def add_metric_info_to_summary(self):
         lines = ["Metric summary:"]

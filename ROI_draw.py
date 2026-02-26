@@ -1,6 +1,6 @@
 import cv2
 from pathlib import Path
-from ImageProcessor import Type151ImageProcessor
+from LabelProcessor import LabelProcessor
 from ROIStorage import ROIStorage, ROICollection
 import config
 
@@ -16,8 +16,8 @@ def create_roi_gui(full_image: cv2.Mat | None,
     pan_x = 0
     pan_y = 0
 
-    roi_modes = ["text_regions", "barcode_regions"]  
-    colors = [(0, 255, 0), (0, 0, 255)]  # Green for text, Blue for barcode
+    roi_modes = ["text_regions", "barcode_regions", "miscellaneous"]  
+    colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0)]  # Green for text, Red for barcode, Blue for miscellaneous
     current_mode_index = 0
     roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
 
@@ -140,6 +140,7 @@ def create_roi_gui(full_image: cv2.Mat | None,
     print("  u: Undo last ROI")
     print("  1: Switch to text_regions mode")
     print("  2: Switch to barcode_regions mode")
+    print("  3: Switch to miscellaneous mode")
     print("  q/ESC: Finish")
 
     while True:
@@ -199,6 +200,13 @@ def create_roi_gui(full_image: cv2.Mat | None,
                 current_mode_index = 1
                 roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
                 print("Switched to barcode_regions mode.")
+        elif key == ord('3'):
+            if current_mode_index != 2:
+                clone = full_image.copy()
+                current_mode_index = 2
+                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
+                print("Switched to miscellaneous mode.")
+        
         elif key == ord('q') or key == 27:
             break
         elif key == ord('+') or key == ord('='):
@@ -211,20 +219,27 @@ def create_roi_gui(full_image: cv2.Mat | None,
 
 if __name__ == "__main__":
     from ImageProcessor import ImageProcessor
-
-    # label_scan_pdf_path = "../label_scans/M333023W146.pdf"
     image_name = "W151.jpg"
-    roi_file_name = "label_151_rois.json"
     image_path = str(config.IMAGES_DIR / image_name)
-    roi_json_path = str(config.ROI_DIR / roi_file_name)
+    cur_dir = Path(__file__).parent.resolve()
+    json_path = cur_dir / "roi_data" / "test_rois.json"
 
+    full_label_image = cv2.imread(image_path)  
     image_processor = ImageProcessor()
-    img = cv2.imread(image_path)
-    img = image_processor.align_image(img, template_image_path=str(config.IMAGES_DIR / "logo_template.jpg"))
+    template_type, full_label_image = image_processor.orb_align_and_clasify(full_label_image)
 
-    roi_storage = ROIStorage(img.shape[1], img.shape[0], roi_json_path=roi_json_path)
+    # specialize image processor to the template
+    image_processor = image_processor.get_suitable_image_processor(template_type)
 
-    existing_rois = roi_storage.load_roi_json_data()
+    _,_,img_w,img_h = config.LABEL_DIMENSIONS[template_type]
+    cropped_image = full_label_image[0:img_h, 0:img_w] 
+    roi_storage = ROIStorage(img_h=cropped_image.shape[0],
+                                    img_w=cropped_image.shape[1],
+                                    template_type=template_type)
+    roi_coordinates = roi_storage.load_roi_json_data()
 
-    updated_rois = create_roi_gui(img, existing_rois)
+
+    
+    updated_rois = create_roi_gui(cropped_image, roi_coordinates)
+
     roi_storage.save_roi_json_data(updated_rois)

@@ -95,11 +95,11 @@ class ImageProcessor():
         # go through templates and find best match based on total distance of top matches
         # save intermediate results to reuse in alignment step and visualization
         least_distance = float("inf") 
-        estimated_template_name = None
+        estimated_template_type = None
         best_matches = []
         best_dst_kps = []
 
-        for template_name, template_img_path in config.TEMPLATES.items():
+        for template_type, template_img_path in config.TEMPLATES.items():
             template = cv2.imread(template_img_path, cv2.IMREAD_GRAYSCALE)
             dst_kps, target_descrs = orb.detectAndCompute(template, None)
             # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
@@ -110,11 +110,11 @@ class ImageProcessor():
 
             if total_distance < least_distance:
                 least_distance = total_distance
-                estimated_template_name = template_name
+                estimated_template_type = template_type
                 best_dst_kps = dst_kps
                 best_matches = top
 
-        best_template = cv2.imread(config.TEMPLATES[estimated_template_name], cv2.IMREAD_GRAYSCALE) 
+        best_template = cv2.imread(config.TEMPLATES[estimated_template_type], cv2.IMREAD_GRAYSCALE) 
         aligned_image = align_using_orb_matches(best_matches, best_dst_kps, best_template)
 
         if visualize:
@@ -128,7 +128,7 @@ class ImageProcessor():
 
             cv2.imshow("Matches", img_match)
             cv2.waitKey(0)
-        return estimated_template_name, aligned_image
+        return estimated_template_type, aligned_image
     
     def preprocess_image_general(self, image: np.ndarray) -> np.ndarray:
         # General preprocessing: convert to grayscale 
@@ -165,17 +165,32 @@ class ImageProcessor():
             return self.preprocess_patient_label
         else:
             return self.preprocess_image_general
+    
+    def preprocess_region_image(self, roi_name: str, image: np.ndarray) -> np.ndarray:
+        '''
+        Applies suitable preprocessing to the input region image based on the region type
 
-    def get_suitable_image_processor(self, template_name: str):
+        :param roi_name: Name of the region of interest, used to determine the suitable preprocessing method 
+        :type roi_name: str
+        :param image: The region image to be preprocessed
+        :type image: np.ndarray
+        :return: The preprocessed region image
+        :rtype: ndarray[_AnyShape, dtype[Any]]
+        '''
+        preprocess_method = self.get_suitable_preprocessing_method(roi_name)
+        preprocessed_image = preprocess_method(image)
+        return preprocessed_image
+
+    def get_suitable_image_processor(self, template_type: str):
         '''Returns an instance of the suitable ImageProcessor subclass based on the template name.
         If no specific processor is found for the template, returns a default ImageProcessor
         instance.
 
-        :param template_name: Name of the template
-        :type template_name: str
+        :param template_type: Name of the template
+        :type template_type: str
         '''
 
-        cls = PROCESSOR_CLASSES.get(template_name, ImageProcessor)
+        cls = PROCESSOR_CLASSES.get(template_type, ImageProcessor)
         return cls() 
     
 class Type151ImageProcessor(ImageProcessor):

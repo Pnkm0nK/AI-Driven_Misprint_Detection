@@ -1,6 +1,7 @@
 results/
 ground_truth/
 .vscode/
+templates/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

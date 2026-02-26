@@ -1,16 +1,13 @@
 import json
-
-type CoordinatesXYXY = tuple[int, int, int, int]
-type CoordinatesNormXYXY = tuple[float, float, float, float]
-type ROIObject =  dict[str, CoordinatesNormXYXY] | dict[str, CoordinatesXYXY]
-type ROICollection = dict[str, ROIObject]
+from config import ROI_FILES
+from custom_types import ROICollection, ROIObject
 
 class ROIStorage:
-    def __init__(self, img_w: int, img_h: int, roi_json_path: str):
+    def __init__(self, img_w: int, img_h: int, template_type: str):
         self.img_h = img_h
         self.img_w = img_w
 
-        self.roi_json_path = roi_json_path
+        self.roi_json_path = ROI_FILES[template_type]
 
         self.roi_data = self.load_roi_json_data()
 
@@ -47,13 +44,11 @@ class ROIStorage:
         with open(self.roi_json_path, 'w') as f:
             json.dump(rois, f, indent=4)
     
+
     def load_roi_json_data(self) -> ROICollection:
         # Load and denormalize coordinates after loading
-        try:
-            with open(self.roi_json_path, 'r') as f:
-                rois = json.load(f)
-        except:
-            return {}
+        with open(self.roi_json_path, 'r') as f:
+            rois = json.load(f)
 
         for roi_category, roi in rois.items():
             rois[roi_category] = self.denormalize_roi_coordinates(roi, self.img_w, self.img_h)
