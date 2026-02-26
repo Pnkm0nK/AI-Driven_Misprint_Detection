@@ -101,6 +101,7 @@ class ImageProcessor():
 
         for template_type, template_img_path in config.TEMPLATES.items():
             template = cv2.imread(template_img_path, cv2.IMREAD_GRAYSCALE)
+            assert template is not None, f"Failed to load template image at {template_img_path}"
             dst_kps, target_descrs = orb.detectAndCompute(template, None)
             # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
             matches = bf.match(query_descrs, target_descrs)

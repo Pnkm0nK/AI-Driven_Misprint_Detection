@@ -47,8 +47,13 @@ class ROIStorage:
 
     def load_roi_json_data(self) -> ROICollection:
         # Load and denormalize coordinates after loading
-        with open(self.roi_json_path, 'r') as f:
-            rois = json.load(f)
+        try:
+            with open(self.roi_json_path, 'r') as f:
+                rois = json.load(f)
+        except FileNotFoundError:
+            print(f"ROI JSON file not found at {self.roi_json_path}. Returning empty ROI collection.")
+            return {}
+        
 
         for roi_category, roi in rois.items():
             rois[roi_category] = self.denormalize_roi_coordinates(roi, self.img_w, self.img_h)

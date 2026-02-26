@@ -16,9 +16,9 @@ GT_FILES = {
 }
 
 TEMPLATES = {
-    "151": IMAGES_DIR / "W151_template.jpg",
-    "146": IMAGES_DIR / "W146_aligned.jpg",
-    "063": IMAGES_DIR / "063_page_0.jpg",
+    "151": TEMPLATE_DIR / "W151_template.jpg",
+    "146": TEMPLATE_DIR / "W146_template.jpg",
+    "063": TEMPLATE_DIR / "063_page_0.jpg",
 }
 
 ROI_FILES = {
