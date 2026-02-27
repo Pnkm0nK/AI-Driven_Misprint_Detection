@@ -61,7 +61,7 @@ class LabelProcessor:
 
         # Crop image to label region to store less, info
         # will be useful during defect detection by differencing template and aligned image.
-        self.full_label_image = self._extract_roi(config.LABEL_DIMENSIONS[template_type])
+        self.full_label_image = self.image_processor.extract_roi(self.full_label_image, config.LABEL_DIMENSIONS[template_type])
 
 
         self.text_region_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["text_regions"])
@@ -110,13 +110,42 @@ class LabelProcessor:
         return cleaned_image
     
     def _calculate_image_difference(self, image1: np.ndarray, image2: np.ndarray) -> np.ndarray:
-        diff = np.sum(cv2.absdiff(image1, image2))
-        return diff
+        # due to diff between LHR and real labels
+        # crop out lower region, which is misaligned in LHR
+        # only for testing
 
-    def _extract_roi(self, coordinates: tuple[int, int, int, int]) -> np.ndarray:
-        x0, y0, x1, y1 = coordinates
-        image = self.full_label_image[y0:y1, x0:x1]
-        return image
+        image1 = image1[0:1650, :]
+        image2 = image2[0:1650, :]
+
+        # greyscale and threshold both images to reduce difference to variable info only
+        # pixel intensities may differ slightly due to scanning differences
+
+        image1 = self.image_processor.convert_to_greyscale(image1)
+        image2 = self.image_processor.convert_to_greyscale(image2)
+        image1 = self.image_processor.threshold_image(image1)
+        image2 = self.image_processor.threshold_image(image2)
+        print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
+        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        # image1 = cv2.dilate(image1, kernel, iterations=1)
+        # image2 = cv2.dilate(image2, kernel, iterations=1)
+
+        resized = cv2.resize(image1, (0,0), fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
+        cv2.imshow("Image 1", resized)
+        cv2.waitKey(0)
+        resized = cv2.resize(image2, (0,0), fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
+        cv2.imshow("Image 2", resized)
+        cv2.waitKey(0)
+        
+        diff_M = cv2.absdiff(image1, image2)
+        
+        diff_sum = np.sum(diff_M)
+        resized_diff = cv2.resize(diff_M, (0,0), fx=0.5, fy=0.5)
+        cv2.imshow("Difference Image", resized_diff)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
+        return diff_sum
+
 
     def _extract_text_from_region_image(self, region_image: np.ndarray, config) -> str:
         # Perform OCR using pytesseract
@@ -132,7 +161,7 @@ class LabelProcessor:
     def _extract_preprocessed_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
         for roi_name,(x0, y0, x1, y1) in roi_coordinates.items():
-            image = self._extract_roi((x0, y0, x1, y1))
+            image = self.image_processor.extract_roi(self.full_label_image, (x0, y0, x1, y1))
             image = self.image_processor.preprocess_region_image(roi_name, image)
             region_images[roi_name] = image
         return region_images

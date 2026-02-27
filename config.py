@@ -15,6 +15,11 @@ GT_FILES = {
     "146": GT_DIR / "label_146_gt.json",
 }
 
+LOGO_TEMPLATES = {
+    "151": TEMPLATE_DIR / "logo_template.jpg",
+    "146": TEMPLATE_DIR / "logo_template.jpg",
+    "063": TEMPLATE_DIR / "logo_template063.jpg"}
+
 TEMPLATES = {
     "151": TEMPLATE_DIR / "W151_template.jpg",
     "146": TEMPLATE_DIR / "W146_template.jpg",
