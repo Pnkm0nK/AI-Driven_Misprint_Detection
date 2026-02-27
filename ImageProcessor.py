@@ -4,7 +4,7 @@ import cv2
 import dotenv
 import pdf2image
 from deskew import determine_skew
-from utils import get_template_matching_results, convert_to_greyscale
+from utils import get_template_matching_results
 import numpy as np
 import config
 
@@ -29,6 +29,28 @@ class ImageProcessor():
         cv_images = [cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR) for img in images]
         return cv_images
     
+    def convert_to_greyscale(self, img: np.ndarray) -> np.ndarray:
+        '''
+        Convert an image to grayscale if it is in color. If the image is already in grayscale, return it as is
+        '''
+        if img.ndim == 3 and img.shape[2] == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        elif img.ndim == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+        return img
+    
+    def threshold_image(self, image: np.ndarray) -> np.ndarray:
+        '''
+        Apply Otsu's thresholding to binarize the input image. Returns the thresholded image.
+        '''
+        _, thresh = cv2.threshold(image, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return thresh
+
+    def extract_roi(self, image: np.ndarray, coordinates: tuple[int, int, int, int]) -> np.ndarray:
+        x0, y0, x1, y1 = coordinates
+        roi_image = image[y0:y1, x0:x1]
+        return roi_image
+
     def deskew_image(self, image:np.ndarray) -> np.ndarray:
         skew_angle = determine_skew(image, max_angle=30)
         rot_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), skew_angle, 1)
@@ -82,10 +104,14 @@ class ImageProcessor():
                 # No perspective change, using affine transform for deskewing and translation correction
                 M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
                 
-                return cv2.warpAffine(original_image, M, (template.shape[1], template.shape[0]))
+                return cv2.warpAffine(original_image, M, (template.shape[1], template.shape[0]),
+                                      flags=cv2.INTER_CUBIC,
+                                      borderMode=cv2.BORDER_CONSTANT,
+                                      borderValue=(255,255,255))
+
         
         original_image = image.copy()
-        image = convert_to_greyscale(image)
+        image = self.convert_to_greyscale(image)
 
         orb = cv2.ORB_create(nfeatures=n_features)
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -133,7 +159,7 @@ class ImageProcessor():
     
     def preprocess_image_general(self, image: np.ndarray) -> np.ndarray:
         # General preprocessing: convert to grayscale 
-        gray = convert_to_greyscale(image) 
+        gray = self.convert_to_greyscale(image) 
         resized = cv2.resize(gray, (0,0), fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC) 
         # unsharp_image = self.unsharp(resized)
         

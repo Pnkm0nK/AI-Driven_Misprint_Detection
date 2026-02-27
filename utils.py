@@ -52,15 +52,6 @@ def display_region_image(roi_name: str, image: np.ndarray, result: str):
         image_np = np.array(new_image)
         cv2.imshow(roi_name, image_np)
 
-def convert_to_greyscale(img: np.ndarray) -> np.ndarray:
-    '''
-    Convert an image to grayscale if it is in color. If the image is already in grayscale, return it as is
-    '''
-    if img.ndim == 3 and img.shape[2] == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    elif img.ndim == 3 and img.shape[2] == 4:
-        img = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
-    return img
 
 def get_template_matching_results(image: np.ndarray, template_image_path: str) -> tuple[float, tuple[int, int]]:
     '''
