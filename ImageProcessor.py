@@ -4,7 +4,6 @@ import cv2
 import dotenv
 import pdf2image
 from deskew import determine_skew
-from utils import get_template_matching_results
 import numpy as np
 import config
 
@@ -56,6 +55,25 @@ class ImageProcessor():
         rot_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), skew_angle, 1)
         image = cv2.warpAffine(image, rot_mat, (image.shape[1],image.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255,255,255))
         return image
+
+    def get_template_matching_results(self, image: np.ndarray, template_image_path: str) -> tuple[float, tuple[int, int]]:
+        '''
+        Gets the template matching score and location for the given image and template. The score is the normalized least square difference.
+        
+        :param image: image to match against template
+        :type image: np.ndarray
+        :param template_image_path: Path to the template image to match
+        :type template_image_path: str
+        :return: A tuple containing the matching score and the top-left location of the best match
+        :rtype: tuple[float, tuple[int, int]]
+        '''
+        image = self.convert_to_greyscale(image)
+        template_image = cv2.imread(template_image_path, cv2.IMREAD_GRAYSCALE)
+        assert template_image is not None, "Template image not found or could not be loaded."
+
+        res = cv2.matchTemplate(image,template_image,cv2.TM_SQDIFF_NORMED)
+        min_val, _, min_loc, _ = cv2.minMaxLoc(res)
+        return min_val, min_loc
     
     def align_image(self, image: np.ndarray, template_image_path: str) -> np.ndarray:
         '''
@@ -63,7 +81,7 @@ class ImageProcessor():
         '''
         deskewed = self.deskew_image(image)
 
-        _, loc = get_template_matching_results(deskewed, template_image_path)
+        _, loc = self.get_template_matching_results(deskewed, template_image_path)
 
         padding = config.PADDING
 
@@ -109,7 +127,6 @@ class ImageProcessor():
                                       borderMode=cv2.BORDER_CONSTANT,
                                       borderValue=(255,255,255))
 
-        
         original_image = image.copy()
         image = self.convert_to_greyscale(image)
 
@@ -163,9 +180,8 @@ class ImageProcessor():
         resized = cv2.resize(gray, (0,0), fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC) 
         # unsharp_image = self.unsharp(resized)
         
-        # padded = cv2.copyMakeBorder(unsharp_image, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255,255,255])
-        # _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return resized
+        padded = cv2.copyMakeBorder(resized, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255,255,255])
+        return padded
     
     def preprocess_top_label(self, image: np.ndarray) -> np.ndarray:
         return self.preprocess_image_general(image)
@@ -242,9 +258,9 @@ class Type063ImageProcessor(ImageProcessor):
         if height > width:
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
             
-        min_val_trial_1, loc = get_template_matching_results(image, template_image_path)
+        min_val_trial_1, loc = self.get_template_matching_results(image, template_image_path)
         upside_down_image = cv2.rotate(image, cv2.ROTATE_180)
-        min_val_trial_2, loc = get_template_matching_results(upside_down_image, template_image_path)
+        min_val_trial_2, loc = self.get_template_matching_results(upside_down_image, template_image_path)
         if min_val_trial_1 < min_val_trial_2:
             return image
 

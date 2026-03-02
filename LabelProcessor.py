@@ -101,12 +101,10 @@ class LabelProcessor:
         Preprocessing step to find defects by differencing template and aligned image.
         '''
         cleaned_image = image.copy()
-        for roi in roi_coordinates["text_regions"].values():
-            x0, y0, x1, y1 = roi
-            cleaned_image[y0:y1, x0:x1] = 255
-        for roi in roi_coordinates["barcode_regions"].values():
-            x0, y0, x1, y1 = roi
-            cleaned_image[y0:y1, x0:x1] = 255
+        for roi_type in roi_coordinates:
+            for roi in roi_coordinates[roi_type].values():
+                x0, y0, x1, y1 = roi
+                cleaned_image[y0:y1, x0:x1] = 255
         return cleaned_image
     
     def _calculate_image_difference(self, image1: np.ndarray, image2: np.ndarray) -> np.ndarray:
@@ -122,12 +120,14 @@ class LabelProcessor:
 
         image1 = self.image_processor.convert_to_greyscale(image1)
         image2 = self.image_processor.convert_to_greyscale(image2)
+
+        # ecc may be helpful to lessen misalignment issues
+        # in experiments lead to ~20% reduction in difference
+        # which is not enough to make a sensitive enough detection
+
         image1 = self.image_processor.threshold_image(image1)
         image2 = self.image_processor.threshold_image(image2)
         print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
-        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        # image1 = cv2.dilate(image1, kernel, iterations=1)
-        # image2 = cv2.dilate(image2, kernel, iterations=1)
 
         resized = cv2.resize(image1, (0,0), fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
         cv2.imshow("Image 1", resized)
@@ -137,7 +137,14 @@ class LabelProcessor:
         cv2.waitKey(0)
         
         diff_M = cv2.absdiff(image1, image2)
-        
+
+        # remove 1-2px noise
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        diff_M = cv2.dilate(diff_M, kernel, iterations=1)
+
+        # possible to threshold to remove noise from misalignment
+        # or threshold before differencing
         diff_sum = np.sum(diff_M)
         resized_diff = cv2.resize(diff_M, (0,0), fx=0.5, fy=0.5)
         cv2.imshow("Difference Image", resized_diff)
@@ -145,6 +152,13 @@ class LabelProcessor:
         cv2.destroyAllWindows()
         
         return diff_sum
+    
+    def calculate_ssim(self, image1: np.ndarray, image2: np.ndarray) -> float:
+        from skimage.metrics import structural_similarity as ssim
+        image1 = self.image_processor.convert_to_greyscale(image1)
+        image2 = self.image_processor.convert_to_greyscale(image2)
+        ssim_value = ssim(image1, image2)
+        return ssim_value
 
 
     def _extract_text_from_region_image(self, region_image: np.ndarray, config) -> str:

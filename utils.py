@@ -51,23 +51,3 @@ def display_region_image(roi_name: str, image: np.ndarray, result: str):
         # Convert back to numpy for cv2.imshow
         image_np = np.array(new_image)
         cv2.imshow(roi_name, image_np)
-
-
-def get_template_matching_results(image: np.ndarray, template_image_path: str) -> tuple[float, tuple[int, int]]:
-    '''
-    Gets the template matching score and location for the given image and template. The score is the normalized least square difference.
-    
-    :param image: image to match against template
-    :type image: np.ndarray
-    :param template_image_path: Path to the template image to match
-    :type template_image_path: str
-    :return: A tuple containing the matching score and the top-left location of the best match
-    :rtype: tuple[float, tuple[int, int]]
-    '''
-    image = convert_to_greyscale(image)
-    template_image = cv2.imread(template_image_path, cv2.IMREAD_GRAYSCALE)
-    assert template_image is not None, "Template image not found or could not be loaded."
-
-    res = cv2.matchTemplate(image,template_image,cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(res)
-    return min_val, min_loc
