@@ -77,6 +77,13 @@ class LabelProcessor:
                            text_region_images=self.text_region_images,
                            barcode_images=self.barcode_images,
                            aligned_image=self.full_label_image)
+        
+    def postprocess_text(self, text: str) -> str:
+        '''
+        General postprocessing of extracted text to normalize text format 
+        '''
+        text = text.replace("\n", " ").strip()
+        return text
     
     def _handle_scan_file(self, scan: str | np.ndarray) -> np.ndarray:
         '''Handles the input scan file, which can be a path to a pdf or image file,
@@ -164,7 +171,7 @@ class LabelProcessor:
     def _extract_text_from_region_image(self, region_image: np.ndarray, config) -> str:
         # Perform OCR using pytesseract
         text = pytesseract.image_to_string(region_image, config=config)
-        return text.strip()
+        return self.postprocess_text(text)
     
     def _select_tesseract_config_for_roi(self, roi_name: str) -> str:
         for key in self.tesseract_config.keys():
