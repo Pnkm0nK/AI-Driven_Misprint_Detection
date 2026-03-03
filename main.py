@@ -63,7 +63,9 @@ def test_image_differencing():
     clean_image = cv2.imread(str(config.TEMPLATE_DIR / "151_cleaned.jpg"))
     querry_image = cv2.imread(str(config.IMAGES_DIR / "151_cleaned.jpg"))
     diff = LabelProcessor()._calculate_image_difference(clean_image, querry_image)
+    ssim_diff = LabelProcessor().calculate_ssim(clean_image, querry_image)
     print(f"Image difference: {diff}")
+    print(f"SSIM: {ssim_diff:.4f}")
 
 def transfer_roi_coordinates():
     from ROIStorage import ROIStorage
@@ -82,4 +84,4 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    test_image_differencing()
+    main()

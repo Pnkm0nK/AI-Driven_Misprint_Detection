@@ -219,7 +219,7 @@ def create_roi_gui(full_image: cv2.Mat | None,
 
 if __name__ == "__main__":
     from ImageProcessor import ImageProcessor
-    template_type = "146"
+    template_type = "151"
     image_path = config.TEMPLATES[template_type]
 
     template_image = cv2.imread(image_path)  
