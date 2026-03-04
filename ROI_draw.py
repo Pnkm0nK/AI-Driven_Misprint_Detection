@@ -16,8 +16,8 @@ def create_roi_gui(full_image: cv2.Mat | None,
     pan_x = 0
     pan_y = 0
 
-    roi_modes = ["text_regions", "barcode_regions", "miscellaneous"]  
-    colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0)]  # Green for text, Red for barcode, Blue for miscellaneous
+    roi_modes = ["text_regions", "barcode_regions", "symbol_regions", "miscellaneous"]  
+    colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0), (160, 0, 200)]  # Green for text, Red for barcode, Blue for symbols, Purple for miscellaneous
     current_mode_index = 0
     roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
 
@@ -204,6 +204,12 @@ def create_roi_gui(full_image: cv2.Mat | None,
             if current_mode_index != 2:
                 clone = full_image.copy()
                 current_mode_index = 2
+                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
+                print("Switched to symbol_regions mode.")
+        elif key == ord('4'):
+            if current_mode_index != 3:
+                clone = full_image.copy()
+                current_mode_index = 3
                 roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
                 print("Switched to miscellaneous mode.")
         
