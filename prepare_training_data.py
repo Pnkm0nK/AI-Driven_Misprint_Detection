@@ -1,8 +1,5 @@
 import json
 import os
-import random
-import subprocess
-import sys
 from pathlib import Path
 from LabelProcessor import LabelProcessor
 from ROIStorage import ROIStorage

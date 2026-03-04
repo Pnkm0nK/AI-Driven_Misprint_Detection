@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 from utils import display_region_image
-from PIL import Image, ImageDraw, ImageFont
 from custom_types import ROICollection
 
 class LabelResult:
@@ -47,9 +46,9 @@ class LabelResult:
     def display_all_region_images(self):
         for roi_name, image in self._text_region_images.items():
             if roi_name in self.region_texts:
-                self.display_region_image(roi_name, image, result=self.region_texts[roi_name])
+                display_region_image(roi_name, image, result=self.region_texts[roi_name])
         for roi_name, image in self._barcode_images.items():
             if roi_name in self.region_barcodes:
-                self.display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
+                display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
         cv2.waitKey(0)
         cv2.destroyAllWindows()
