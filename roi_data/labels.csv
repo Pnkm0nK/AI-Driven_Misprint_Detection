@@ -8,7 +8,6 @@ barcode_regions/patient3_ecc200
 barcode_regions/patient4_ecc200
 barcode_regions/patient5_ecc200
 barcode_regions/patient6_ecc200
-barcode_regions/patient6_expiry_date
 barcode_regions/small_ecc200
 barcode_regions/top_code128
 barcode_regions/top_ecc200
@@ -29,7 +28,7 @@ symbol_regions/top_logo
 symbol_regions/top_lot
 symbol_regions/top_ref
 text_regions/large_barcode_subscript
-text_regions/large_barcode_subscript2
+text_regions/large_barcode_subscript_2
 text_regions/large_expiry_date
 text_regions/large_lot
 text_regions/large_manufacture_date
@@ -93,14 +92,11 @@ text_regions/patient5_subscript
 text_regions/small_subscript
 text_regions/small_expiry_date
 text_regions/small_lot
-text_regions/small_lot_number
 text_regions/small_manufacture_date
 text_regions/small_material
 text_regions/small_name
 text_regions/small_ref
 text_regions/small_size
-text_regions/top_subscript_2
-text_regions/top_subscript
 text_regions/top_lot
 text_regions/top_name
 text_regions/top_ref
