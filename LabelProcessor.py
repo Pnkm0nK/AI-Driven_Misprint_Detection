@@ -32,7 +32,7 @@ class LabelProcessor:
         
         self.image_processor = ImageProcessor()
     
-    def process_label(self, scan: str | np.ndarray) -> LabelResult:
+    def process_label(self, scan: str | np.ndarray, template_type: str = None) -> LabelResult:
         '''
         Performs the full processing pipeline of a label scan. This includes:
         1. using ORB to align the label scan to a template and classify it to a template type. 
@@ -49,7 +49,10 @@ class LabelProcessor:
         self.full_label_image = self._handle_scan_file(scan)
 
         # use orb to align the image and classify it to a template type. This will help us select the suitable image processor and ROIs for the label.
-        template_type, self.full_label_image = self.image_processor.orb_align_and_clasify(self.full_label_image)
+        if template_type is None:
+            template_type, self.full_label_image = self.image_processor.orb_align_and_clasify(self.full_label_image)
+        else:
+            self.full_label_image =self.image_processor.orb_align(self.full_label_image, template_type, n_features=1000, max_matches=100, visualize=True)
 
         # specialize image processor to the template
         self.image_processor = self.image_processor.get_suitable_image_processor(template_type)
@@ -59,16 +62,16 @@ class LabelProcessor:
                                       template_type=template_type)
         roi_coordinates = roi_storage.load_roi_json_data()
 
-        # Crop image to label region to store less, info
-        # will be useful during defect detection by differencing template and aligned image.
-        self.full_label_image = self.image_processor.extract_roi(self.full_label_image, config.LABEL_DIMENSIONS[template_type])
-
-
         self.text_region_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["text_regions"])
         region_texts: dict[str, str] = self._extract_all_region_texts()
 
         self.barcode_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["barcode_regions"])
         region_barcodes: dict[str, str] = self._extract_all_barcodes()
+
+        # do not apply preprocessing to symbol regions, as here preprocessing is
+        # specialized for differencing
+        symbol_images = self._extract_region_images(roi_coordinates["symbol_regions"])
+
 
         return LabelResult(template_type=template_type,
                            roi_coordinates=roi_coordinates,
@@ -76,9 +79,10 @@ class LabelProcessor:
                            region_barcodes=region_barcodes,
                            text_region_images=self.text_region_images,
                            barcode_images=self.barcode_images,
+                           symbol_images=symbol_images,
                            aligned_image=self.full_label_image)
         
-    def postprocess_text(self, text: str) -> str:
+    def _postprocess_text(self, text: str) -> str:
         '''
         General postprocessing of extracted text to normalize text format 
         '''
@@ -114,64 +118,10 @@ class LabelProcessor:
                 cleaned_image[y0:y1, x0:x1] = 255
         return cleaned_image
     
-    def _calculate_image_difference(self, image1: np.ndarray, image2: np.ndarray) -> np.ndarray:
-        # due to diff between LHR and real labels
-        # crop out lower region, which is misaligned in LHR
-        # only for testing
-
-        image1 = image1[0:1650, :]
-        image2 = image2[0:1650, :]
-
-        # greyscale and threshold both images to reduce difference to variable info only
-        # pixel intensities may differ slightly due to scanning differences
-
-        image1 = self.image_processor.convert_to_greyscale(image1)
-        image2 = self.image_processor.convert_to_greyscale(image2)
-
-        # ecc may be helpful to lessen misalignment issues
-        # in experiments lead to ~20% reduction in difference
-        # which is not enough to make a sensitive enough detection
-
-        image1 = self.image_processor.threshold_image(image1)
-        image2 = self.image_processor.threshold_image(image2)
-        print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
-
-        resized = cv2.resize(image1, (0,0), fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
-        cv2.imshow("Image 1", resized)
-        cv2.waitKey(0)
-        resized = cv2.resize(image2, (0,0), fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
-        cv2.imshow("Image 2", resized)
-        cv2.waitKey(0)
-        
-        diff_M = cv2.absdiff(image1, image2)
-
-        # remove 1-2px noise
-
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        diff_M = cv2.dilate(diff_M, kernel, iterations=1)
-
-        # possible to threshold to remove noise from misalignment
-        # or threshold before differencing
-        diff_sum = np.sum(diff_M)
-        resized_diff = cv2.resize(diff_M, (0,0), fx=0.5, fy=0.5)
-        cv2.imshow("Difference Image", resized_diff)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        
-        return diff_sum
-    
-    def calculate_ssim(self, image1: np.ndarray, image2: np.ndarray) -> float:
-        from skimage.metrics import structural_similarity as ssim
-        image1 = self.image_processor.convert_to_greyscale(image1)
-        image2 = self.image_processor.convert_to_greyscale(image2)
-        ssim_value = ssim(image1, image2)
-        return ssim_value
-
-
     def _extract_text_from_region_image(self, region_image: np.ndarray, config) -> str:
         # Perform OCR using pytesseract
         text = pytesseract.image_to_string(region_image, config=config)
-        return self.postprocess_text(text)
+        return self._postprocess_text(text)
     
     def _select_tesseract_config_for_roi(self, roi_name: str) -> str:
         for key in self.tesseract_config.keys():
@@ -181,9 +131,16 @@ class LabelProcessor:
 
     def _extract_preprocessed_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
-        for roi_name,(x0, y0, x1, y1) in roi_coordinates.items():
-            image = self.image_processor.extract_roi(self.full_label_image, (x0, y0, x1, y1))
+        for roi_name, coords in roi_coordinates.items():
+            image = self.image_processor.extract_roi(self.full_label_image, coords)
             image = self.image_processor.preprocess_region_image(roi_name, image)
+            region_images[roi_name] = image
+        return region_images
+    
+    def _extract_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
+        region_images = {}
+        for roi_name, coords in roi_coordinates.items():
+            image = self.image_processor.extract_roi(self.full_label_image, coords)
             region_images[roi_name] = image
         return region_images
     

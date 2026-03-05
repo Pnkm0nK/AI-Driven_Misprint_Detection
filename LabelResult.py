@@ -10,6 +10,7 @@ class LabelResult:
                  region_barcodes: dict[str,str],
                  text_region_images: dict[str,np.ndarray],
                  barcode_images: dict[str,np.ndarray],
+                 symbol_images: dict[str,np.ndarray],
                  aligned_image: np.ndarray):
         '''
         Docstring for __init__
@@ -36,12 +37,33 @@ class LabelResult:
         self.roi_coordinates = roi_coordinates
         self._text_region_images = text_region_images
         self._barcode_images = barcode_images
+        self._symbol_images = symbol_images
 
     def get_extracted_texts(self) -> dict[str, str]:
         return self.region_texts
     
     def get_extracted_barcodes(self) -> dict[str, str]:
         return self.region_barcodes
+    
+    def display_text_region_images(self):
+        for roi_name, image in self._text_region_images.items():
+            if roi_name in self.region_texts:
+                display_region_image(roi_name, image, result=self.region_texts[roi_name])
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    
+    def display_barcode_region_images(self):
+        for roi_name, image in self._barcode_images.items():
+            if roi_name in self.region_barcodes:
+                display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    
+    def display_symbol_region_images(self):
+        for roi_name, image in self._symbol_images.items():
+            display_region_image(roi_name, image, result="Symbol region")
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     def display_all_region_images(self):
         for roi_name, image in self._text_region_images.items():
@@ -50,5 +72,7 @@ class LabelResult:
         for roi_name, image in self._barcode_images.items():
             if roi_name in self.region_barcodes:
                 display_region_image(roi_name, image, result=self.region_barcodes[roi_name])
+        for roi_name, image in self._symbol_images.items():
+            display_region_image(roi_name, image, result="Symbol region")
         cv2.waitKey(0)
         cv2.destroyAllWindows()

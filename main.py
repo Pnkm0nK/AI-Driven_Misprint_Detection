@@ -1,17 +1,33 @@
 import config
 import cv2
 from pathlib import Path
+from ROIStorage import ROIStorage
 from LabelProcessor import LabelProcessor
 from ImageProcessor import ImageProcessor
 from ResultStorage import ResultStorage
 
 def main():
-    image_name = "W151.jpg"
+    image_name = "W151_3.jpg"
     processor = LabelProcessor()
     results = processor.process_label(str(config.IMAGES_DIR / image_name))
     results = ResultStorage(results)
-    results.generate_summary(f"W151_result", str(config.RESULTS_DIR))
+    results.generate_summary(f"W151_3_result_retrain", str(config.RESULTS_DIR))
     results.display_regions_with_mismatches()
+
+def perform_symbol_image_differencing(querry_image_path):
+    querry_image = cv2.imread(querry_image_path)
+    processor = LabelProcessor()
+    results = processor.process_label(querry_image)
+    results.display_symbol_region_images()
+    image_processor: ImageProcessor = ImageProcessor.get_suitable_image_processor(results.template_type)
+    template_image = cv2.imread(str(config.TEMPLATES[results.template_type]))
+
+    symbol_rois = results.roi_coordinates["symbol_regions"]
+    for roi_name, coords in symbol_rois.items():
+        querry_crop = results._symbol_images[roi_name]
+        template_crop = image_processor.extract_roi(template_image, coords )
+        diff = image_processor.calculate_image_difference(template_crop, querry_crop)
+        print(f"Difference for {roi_name}: {diff}")
 
 def save_image_from_scan(label_scan_path):
     image_processor = ImageProcessor()
@@ -26,7 +42,7 @@ def save_deskewed_aligned_and_cropped_image(image_name, template_type):
     image_processor = ImageProcessor()
     processed_image = image_processor.align_image(full_label_image, template_path)
     processed_image = image_processor.extract_roi(processed_image, config.LABEL_DIMENSIONS[template_type])
-    cv2.imwrite(str(config.IMAGES_DIR / f"W{template_type}_aligned_cropped.jpg"), processed_image)
+    cv2.imwrite(str(config.IMAGES_DIR / f"{image_name.replace('.jpg', '')}_aligned_cropped.jpg"), processed_image)
 
 
 def save_orb_aligned_image():
@@ -84,4 +100,6 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    main()
+    # perform_symbol_image_differencing(str(config.IMAGES_DIR / "W151_2_gs.jpg"))
+    save_deskewed_aligned_and_cropped_image("W151_2_gs.jpg", "151")
+    # main()
