@@ -1,244 +1,167 @@
+import os
+
 import cv2
+import subprocess
 from pathlib import Path
-from LabelProcessor import LabelProcessor
+from ImageProcessor import ImageProcessor
 from ROIStorage import ROIStorage, ROICollection
+import json
 import config
 
-def create_roi_gui(full_image: cv2.Mat | None,
-                   roi_collection: ROICollection) -> ROICollection:
+'''
+Script for creating and editing ROIS using labelme lib
+Provides conversion to and from labelme JSON format
+'''
 
-    assert full_image is not None, "Full label image is not loaded."
-    
-    # Zoom and pan state
-    scale = 1.0
-    min_scale = 0.1
-    max_scale = 10.0
-    pan_x = 0
-    pan_y = 0
+def roi_collection_to_labelme(
+    roi_collection: ROICollection,
+    image_path: str | Path,
+    img_w: int,
+    img_h: int,
+) -> dict:
+    '''
+    Convert denormalized pixel ROICollection to a labelme
+    annotation dict. The returned dict can be written directly to a labelme JSON file.
 
-    roi_modes = ["text_regions", "barcode_regions", "symbol_regions", "miscellaneous"]  
-    colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0), (160, 0, 200)]  # Green for text, Red for barcode, Blue for symbols, Purple for miscellaneous
-    current_mode_index = 0
-    roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
+    :param roi_collection: Denormalized ROI collection as returned by
+                           ROIStorage.load_roi_json_data()
+    :param image_path: Path to the image file (written into labelme JSON for
+                       reference; labelme does NOT need to find it at runtime
+                       when imageData is null)
+    :param img_w: Image width in pixels
+    :param img_h: Image height in pixels
+    :return: labelme annotation dict
+    '''
+    shapes = []
+    for category, rois in roi_collection.items():
+        for roi_name, coords in rois.items():
+            x0, y0, x1, y1 = coords
+            shapes.append({
+                "label": f"{category}/{roi_name}",
+                "points": [[float(x0), float(y0)], [float(x1), float(y1)]],
+                "group_id": None,
+                "shape_type": "rectangle",
+                "flags": {},
+            })
 
-    clone = full_image.copy()
-    drawing = False
-    ix = iy = -1
-    curr_x = curr_y = -1  # Track current mouse position
-    pending = []  # list of (img_x0, img_y0, img_x1, img_y1) in image coordinates
-    change_stack = []
-    
-    panning = False
-    pan_start_x = pan_start_y = 0
-    pan_x_start = pan_y_start = 0
+    return {
+        "version": "5.5.0",
+        "flags": {},
+        "shapes": shapes,
+        "imagePath": str(Path(image_path).name),
+        "imageData": None,
+        "imageHeight": img_h,
+        "imageWidth": img_w,
+    }
 
-    def get_display_image():
-        """Generate the current display view with zoom and pan"""
-        nonlocal scale, pan_x, pan_y
-        
-        h, w = clone.shape[:2]
-        
-        # Clamp pan to keep image visible
-        max_pan_x = max(0, int(w * scale) - w)
-        max_pan_y = max(0, int(h * scale) - h)
-        pan_x = max(0, min(pan_x, max_pan_x))
-        pan_y = max(0, min(pan_y, max_pan_y))
-        
-        # Resize image
-        scaled_w = int(w * scale)
-        scaled_h = int(h * scale)
-        scaled = cv2.resize(clone, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
-        
-        # Crop for pan
-        crop_x = int(pan_x)
-        crop_y = int(pan_y)
-        crop_w = min(w, scaled_w - crop_x)
-        crop_h = min(h, scaled_h - crop_y)
-        
-        if crop_w <= 0 or crop_h <= 0:
-            return clone.copy()
-            
-        cropped = scaled[crop_y:crop_y+crop_h, crop_x:crop_x+crop_w]
-        
-        # Pad if necessary
-        if cropped.shape[0] < h or cropped.shape[1] < w:
-            result = clone.copy()
-            result[0:cropped.shape[0], 0:cropped.shape[1]] = cropped
-            return result
-        
-        return cropped
-    
-    def display_to_image_coords(disp_x, disp_y):
-        """Convert display coordinates to original image coordinates"""
-        img_x = int((disp_x + pan_x) / scale)
-        img_y = int((disp_y + pan_y) / scale)
-        return img_x, img_y
-    
-    def image_to_display_coords(img_x, img_y):
-        """Convert image coordinates to display coordinates"""
-        disp_x = int(img_x * scale - pan_x)
-        disp_y = int(img_y * scale - pan_y)
-        return disp_x, disp_y
 
-    def _mouse_cb(event, x, y, flags, param):
-        nonlocal drawing, ix, iy, curr_x, curr_y, panning, pan_start_x, pan_start_y, pan_x_start, pan_y_start, scale, pan_x, pan_y
-        
-        if event == cv2.EVENT_LBUTTONDOWN:
-            drawing = True
-            ix, iy = x, y
-            curr_x, curr_y = x, y
-        elif event == cv2.EVENT_MOUSEMOVE:
-            if drawing:
-                curr_x, curr_y = x, y  # Update current position while dragging
-            elif panning:
-                pan_x = pan_x_start - (x - pan_start_x)
-                pan_y = pan_y_start - (y - pan_start_y)
-        elif event == cv2.EVENT_LBUTTONUP:
-            if drawing:
-                drawing = False
-                # Convert to image coordinates
-                img_x0, img_y0 = display_to_image_coords(min(ix, x), min(iy, y))
-                img_x1, img_y1 = display_to_image_coords(max(ix, x), max(iy, y))
-                
-                # Clamp to image bounds
-                h, w = full_image.shape[:2]
-                img_x0 = max(0, min(img_x0, w))
-                img_y0 = max(0, min(img_y0, h))
-                img_x1 = max(0, min(img_x1, w))
-                img_y1 = max(0, min(img_y1, h))
-                
-                if img_x1 > img_x0 and img_y1 > img_y0:
-                    pending.append((img_x0, img_y0, img_x1, img_y1))
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            panning = True
-            pan_start_x, pan_start_y = x, y
-            pan_x_start, pan_y_start = pan_x, pan_y
-        elif event == cv2.EVENT_RBUTTONUP:
-            panning = False
-        elif event == cv2.EVENT_MOUSEWHEEL:
-            # Zoom at mouse position
-            old_scale = scale
-            if flags > 0:  # Scroll up = zoom in
-                scale = min(max_scale, scale * 1.1)
-            else:  # Scroll down = zoom out
-                scale = max(min_scale, scale / 1.1)
-            
-            # Adjust pan to zoom towards mouse cursor
-            zoom_ratio = scale / old_scale
-            pan_x = int(pan_x * zoom_ratio + x * (zoom_ratio - 1))
-            pan_y = int(pan_y * zoom_ratio + y * (zoom_ratio - 1))
+def save_labelme_json(
+    roi_collection: ROICollection,
+    image_path: str | Path,
+    img_w: int,
+    img_h: int,
+    output_path: str | Path,
+) -> None:
+    '''
+    Convert ROICollection to labelme JSON and write to output_path.
+    '''
+    data = roi_collection_to_labelme(roi_collection, image_path, img_w, img_h)
+    with open(output_path, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"Saved labelme JSON → {output_path}")
 
-    window_name = "Create ROIs"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.setMouseCallback(window_name, _mouse_cb)
 
-    print("Controls:")
-    print("  Left-click-drag: Draw ROI")
-    print("  Right-click-drag: Pan")
-    print("  Mouse wheel: Zoom in/out")
-    print("  +/-: Zoom in/out (keyboard)")
-    print("  u: Undo last ROI")
-    print("  1: Switch to text_regions mode")
-    print("  2: Switch to barcode_regions mode")
-    print("  3: Switch to miscellaneous mode")
-    print("  q/ESC: Finish")
+def labelme_to_roi(labelme_json_path: str | Path) -> ROICollection:
+    '''
+    Load a labelme JSON file and convert it back to a denormalized
+    ROICollection pixel coords
 
-    while True:
-        # Generate display with zoom/pan
-        display = get_display_image()
-        color = colors[current_mode_index]
-        
-        # Draw existing ROIs in display space
-        for (x0, y0, x1, y1) in roi_coordinates.values():
-            disp_x0, disp_y0 = image_to_display_coords(x0, y0)
-            disp_x1, disp_y1 = image_to_display_coords(x1, y1)
-            cv2.rectangle(display, (disp_x0, disp_y0), (disp_x1, disp_y1), color, 2)
-        
-        # Draw current rectangle being drawn
-        if drawing and curr_x >= 0 and curr_y >= 0:
-            cv2.rectangle(display, (ix, iy), (curr_x, curr_y), color, 2)
-        
-        # If there are pending ROIs, ask for a name
-        if pending:
-            x0, y0, x1, y1 = pending.pop(0)
-            default_name = f"ROI_{len(roi_coordinates) + 1}"
-            try:
-                name = input(f"Enter name for ROI {default_name} (leave blank to use '{default_name}'): ").strip()
-            except Exception:
-                name = default_name
-            if not name:
-                name = default_name
-            roi_coordinates[name] = (x0, y0, x1, y1)
-            roi_collection[roi_modes[current_mode_index]] = roi_coordinates
-            # Draw permanent rectangle on clone in image coordinates
-            cv2.rectangle(clone, (x0, y0), (x1, y1), color, 2)
-            print(f"Added ROI '{name}': (x={x0}, y={y0}, x2={x1}, y2={y1})")
+    Labels are expected in the form category/roi_name. Any shape that
+    does not follow this convention is placed under miscellaneous
 
-        # Show zoom level
-        cv2.putText(display, f"Zoom: {scale:.1f}x", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        cv2.imshow(window_name, display)
-        key = cv2.waitKey(20) & 0xFF
-        
-        if key == ord('u'):
-            if roi_coordinates:
-                last_roi_name = list(roi_coordinates.keys())[-1]
-                del roi_coordinates[last_roi_name]
-                roi_collection[roi_modes[current_mode_index]] = roi_coordinates
-                clone = full_image.copy()
-                print(f"Undid last ROI: {last_roi_name}")
-        elif key == ord('1'):
-            if current_mode_index != 0:
-                clone = full_image.copy()
-                current_mode_index = 0
-                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
-                print("Switched to text_regions mode.")
-        elif key == ord('2'):
-            if current_mode_index != 1:
-                clone = full_image.copy()
-                current_mode_index = 1
-                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
-                print("Switched to barcode_regions mode.")
-        elif key == ord('3'):
-            if current_mode_index != 2:
-                clone = full_image.copy()
-                current_mode_index = 2
-                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
-                print("Switched to symbol_regions mode.")
-        elif key == ord('4'):
-            if current_mode_index != 3:
-                clone = full_image.copy()
-                current_mode_index = 3
-                roi_coordinates = roi_collection[roi_modes[current_mode_index]] if roi_modes[current_mode_index] in roi_collection else {}
-                print("Switched to miscellaneous mode.")
-        
-        elif key == ord('q') or key == 27:
-            break
-        elif key == ord('+') or key == ord('='):
-            scale = min(max_scale, scale * 1.2)
-        elif key == ord('-') or key == ord('_'):
-            scale = max(min_scale, scale / 1.2)
+    :param labelme_json_path: Path to the labelme JSON file
+    :return: Denormalized ROICollection
+    '''
+    with open(labelme_json_path, "r") as f:
+        data = json.load(f)
 
-    cv2.destroyWindow(window_name)
+    roi_collection: ROICollection = {}
+
+    for shape in data.get("shapes", []):
+        if shape.get("shape_type") != "rectangle":
+            continue  # skip polygons or other types added labelme
+
+        label: str = shape["label"]
+
+        if "/" in label: # / is a way to categorize ROIs in labelme
+            category, roi_name = label.split("/", maxsplit=1)
+        else:
+            category, roi_name = "miscellaneous", label
+
+        (x0, y0), (x1, y1) = shape["points"]
+        coords = (int(x0), int(y0), int(x1), int(y1))
+
+        roi_collection.setdefault(category, {})[roi_name] = coords
+
     return roi_collection
 
+def edit_rois_in_labelme(
+    roi_collection: ROICollection,
+    image_path: str | Path,
+    img_w: int,
+    img_h: int,
+) -> ROICollection:
+    '''
+    Open labelme with the current ROI annotations pre-loaded, wait for the
+    user to finish editing, then return the updated ROICollection
+
+    :param roi_collection: Current denormalized ROICollection
+    :param image_path: Path to the label image to annotate
+    :param img_w: Image width in pixels
+    :param img_h: Image height in pixels
+    :return: Updated denormalized ROICollection after the user closes labelme
+    '''
+    image_path = Path(image_path)
+
+    # temporary labelme JSON 
+    labelme_json_path = image_path.with_suffix(".json")
+
+    save_labelme_json(roi_collection, image_path, img_w, img_h, labelme_json_path)
+
+    print(f"Launching labelme for {image_path.name} …")
+    print("Save and close labelme when done")
+
+    subprocess.run(["labelme", str(image_path),
+                    "--labels", str(config.ROI_DIR / "labels.csv"),
+                    "--nodata"],
+                      check=True)
+
+    if not labelme_json_path.exists():
+        print("No labelme JSON found after editing – returning original ROIs.")
+        return roi_collection
+
+    updated = labelme_to_roi(labelme_json_path)
+    os.remove(labelme_json_path)  # clean up temporary JSON file  
+    print(f"Loaded {sum(len(v) for v in updated.values())} ROIs from labelme.")
+    return updated
+
 if __name__ == "__main__":
-    from ImageProcessor import ImageProcessor
+
     template_type = "151"
     image_path = config.TEMPLATES[template_type]
 
-    template_image = cv2.imread(image_path)  
-    image_processor = ImageProcessor()
-
-    # specialize image processor to the template
-    image_processor = image_processor.get_suitable_image_processor(template_type)
+    template_image = cv2.imread(str(image_path))
+    image_processor = ImageProcessor.get_suitable_image_processor(template_type)
 
     roi_storage = ROIStorage(img_h=template_image.shape[0],
-                                    img_w=template_image.shape[1],
-                                    template_type=template_type)
+                             img_w=template_image.shape[1],
+                             template_type=template_type)
     roi_coordinates = roi_storage.load_roi_json_data()
 
-    updated_rois = create_roi_gui(template_image, roi_coordinates)
-
+    updated_rois = edit_rois_in_labelme(
+        roi_coordinates,
+        image_path,
+        img_w=template_image.shape[1],
+        img_h=template_image.shape[0],
+    )
     roi_storage.save_roi_json_data(updated_rois)

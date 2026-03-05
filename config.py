@@ -14,7 +14,7 @@ TESSERACT_CFG = BASE_DIR / "tesseract_config.json"
 GT_FILES = {
     "151": GT_DIR / "label_151_gt.json",
     "146": GT_DIR / "label_146_gt.json",
-    "151_2": GT_DIR / "label_151_gt.json",
+    "151_2": GT_DIR / "label_151_2_gt.json",
 }
 
 LOGO_TEMPLATES = {
@@ -31,7 +31,7 @@ TEMPLATES = {
 
 ROI_FILES = {
     "151": ROI_DIR / "label_151_rois.json",
-    "151_2": ROI_DIR / "label_151_rois.json",
+    "151_2": ROI_DIR / "label_151_2_rois.json",
     "146": ROI_DIR / "label_146_rois.json",
     "063": ROI_DIR / "label_063_rois.json",
 }
