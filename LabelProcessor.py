@@ -4,6 +4,7 @@ import numpy as np
 import os
 import pytesseract
 import dotenv
+from ultralytics import YOLO
 import zxingcpp as zxing
 
 from ImageProcessor import ImageProcessor
@@ -31,6 +32,7 @@ class LabelProcessor:
             self.tesseract_config = json.load(f)
         
         self.image_processor = ImageProcessor()
+        self.label_classifier = YOLO("label_classifier.pt")
     
     def process_label(self, scan: str | np.ndarray, template_type: str = None) -> LabelResult:
         '''
@@ -49,10 +51,13 @@ class LabelProcessor:
         self.full_label_image = self._handle_scan_file(scan)
 
         # use orb to align the image and classify it to a template type. This will help us select the suitable image processor and ROIs for the label.
+        yolo_classifier = YOLO("yolo26n.pt")
         if template_type is None:
-            template_type, self.full_label_image = self.image_processor.orb_align_and_clasify(self.full_label_image)
-        else:
-            self.full_label_image =self.image_processor.orb_align(self.full_label_image, template_type, n_features=1000, max_matches=100, visualize=True)
+            classifier_results = self.label_classifier(self.full_label_image)
+            most_probable_class = classifier_results[0].probs.top1
+            template_type = classifier_results[0].names[most_probable_class]
+
+        self.full_label_image =self.image_processor.orb_align(self.full_label_image, template_type, n_features=200, max_matches=30, visualize=True)
 
         # specialize image processor to the template
         self.image_processor = self.image_processor.get_suitable_image_processor(template_type)

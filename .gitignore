@@ -1,8 +1,11 @@
 results/
+label_type_annotations/
 ground_truth/
 .vscode/
 templates/
 training_data/
+*yolo26*
+yolo_runs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

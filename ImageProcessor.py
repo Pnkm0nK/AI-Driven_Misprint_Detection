@@ -97,35 +97,42 @@ class ImageProcessor():
         sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, threshold)
         return sharpened
     
-    def _align_using_orb_matches(self,matches, src_kps, dst_kps, template, original_image):
-        if len(matches) >= 4:
-            src_pts = np.float32([src_kps[m.queryIdx].pt for m in matches]).reshape(-1,1,2)
-            dst_pts = np.float32([dst_kps[m.trainIdx].pt for m in matches]).reshape(-1,1,2)
-            
-            # No perspective change, using affine transform for deskewing and translation correction
-            M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
-            
-            return cv2.warpAffine(original_image, M, (template.shape[1], template.shape[0]),
-                                    flags=cv2.INTER_CUBIC,
-                                    borderMode=cv2.BORDER_CONSTANT,
-                                    borderValue=(255,255,255))
+    def _align_using_orb_matches(self, matches, src_kps, dst_kps, template, original_image):
+        if len(matches) < 4:
+            raise ValueError(f"Not enough matches to estimate transform: {len(matches)} < 4")
+
+        src_pts = np.float32([src_kps[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        dst_pts = np.float32([dst_kps[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+        # No perspective change, using affine transform for deskewing and translation correction
+        M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
+
+        if M is None:
+            raise ValueError("estimateAffinePartial2D failed — not enough RANSAC inliers.")
+
+        return cv2.warpAffine(original_image, M, (template.shape[1], template.shape[0]),
+                              flags=cv2.INTER_CUBIC,
+                              borderMode=cv2.BORDER_CONSTANT,
+                              borderValue=(255, 255, 255))
     
     def orb_align(self, image: np.ndarray, template_type:str, n_features:int=100, max_matches: int = 15, visualize=False)-> np.ndarray:
 
         original_image = image.copy()
         image = self.convert_to_greyscale(image)
         template_img_path = config.TEMPLATES[template_type]
+        template = cv2.imread(str(template_img_path), cv2.IMREAD_GRAYSCALE)
 
         orb = cv2.ORB_create(nfeatures=n_features)
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
         src_kps, query_descrs = orb.detectAndCompute(image, None)
     
-        template = cv2.imread(template_img_path, cv2.IMREAD_GRAYSCALE)
         assert template is not None, f"Failed to load template image at {template_img_path}"
         dst_kps, target_descrs = orb.detectAndCompute(template, None)
         # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
         matches = bf.match(query_descrs, target_descrs)
+        matches = sorted(matches, key=lambda x: x.distance)
+        matches = matches[:min(max_matches, len(matches))]
 
         if visualize:
             # reload template in color for visualization only
@@ -140,7 +147,7 @@ class ImageProcessor():
             cv2.waitKey(0)
         return self._align_using_orb_matches(matches, src_kps, dst_kps, template, original_image)
 
-    def orb_align_and_clasify(self, image: np.ndarray, n_features:int=100, max_matches: int = 15, visualize=False) -> tuple[str, np.ndarray]:
+    def orb_align_and_clasify(self, image: np.ndarray, n_features:int=200, max_matches: int = 50, visualize=False) -> tuple[str, np.ndarray]:
         '''
         Classify and align the input image to the best matching template using ORB feature matching.
         Returns the estimated template name and the aligned image.
@@ -181,7 +188,7 @@ class ImageProcessor():
             matches = bf.match(query_descrs, target_descrs)
             matches = sorted(matches, key=lambda x: x.distance)
             top = matches[:min(max_matches, len(matches))]
-            total_distance = sum(m.distance for m in top) if top else float("inf")
+            total_distance = (sum(m.distance for m in top) / len(top)) if top else float("inf")
 
             if total_distance < least_distance:
                 least_distance = total_distance
@@ -194,6 +201,8 @@ class ImageProcessor():
 
         if visualize:
             # reload template in color for visualization only
+            cv2.imshow("aligned", aligned_image)
+            cv2.waitKey(0)
             img_match = cv2.drawMatches(image, src_kps, best_template, best_dst_kps, best_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
             height, width = img_match.shape[:2]
             aspect_ratio = width / height
@@ -203,6 +212,7 @@ class ImageProcessor():
 
             cv2.imshow("Matches", img_match)
             cv2.waitKey(0)
+            cv2.destroyAllWindows()
         return estimated_template_type, aligned_image
 
     def calculate_image_difference(self, image1: np.ndarray, image2: np.ndarray, visualize: bool = True) -> np.ndarray:

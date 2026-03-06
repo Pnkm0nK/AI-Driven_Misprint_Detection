@@ -7,6 +7,7 @@ ROI_DIR      = BASE_DIR / "roi_data"
 GT_DIR       = BASE_DIR / "ground_truth"
 RESULTS_DIR  = BASE_DIR / "results"
 TEMPLATE_DIR = BASE_DIR / "templates"
+ANNOTATIONS_DIR = BASE_DIR / "label_type_annotations"
 SCANS_DIR    = BASE_DIR.parent / "label_scans"
 
 TESSERACT_CFG = BASE_DIR / "tesseract_config.json"
@@ -20,13 +21,13 @@ GT_FILES = {
 LOGO_TEMPLATES = {
     "151": TEMPLATE_DIR / "logo_template.jpg",
     "146": TEMPLATE_DIR / "logo_template.jpg",
-    "063": TEMPLATE_DIR / "logo_template063.jpg"}
+    "063": TEMPLATE_DIR / "logo_template063.jpg"
+}
 
 TEMPLATES = {
     "151": TEMPLATE_DIR / "W151_template.jpg",
-    "151_2": TEMPLATE_DIR / "W151_2_template.jpg",
     "146": TEMPLATE_DIR / "W146_template.jpg",
-    "063": TEMPLATE_DIR / "063_page_0.jpg",
+    "151_2": TEMPLATE_DIR / "W151_2_template.jpg",
 }
 
 ROI_FILES = {
@@ -38,6 +39,7 @@ ROI_FILES = {
 
 LABEL_DIMENSIONS = {
     "151": (0, 0, 1102, 3099),
+    "151_2": (0, 0, 1102, 3099),
     "146": (0, 0, 1102, 3099),
     "063": (0, 0, 2550, 3300),
 }

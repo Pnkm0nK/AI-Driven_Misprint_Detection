@@ -3,7 +3,6 @@ import os
 import cv2
 import subprocess
 from pathlib import Path
-from ImageProcessor import ImageProcessor
 from ROIStorage import ROIStorage, ROICollection
 import json
 import config
@@ -145,14 +144,11 @@ def edit_rois_in_labelme(
     print(f"Loaded {sum(len(v) for v in updated.values())} ROIs from labelme.")
     return updated
 
-if __name__ == "__main__":
-
-    template_type = "151"
+def annotate_template_rois(template_type: str):
+    template_type = "146"
     image_path = config.TEMPLATES[template_type]
 
     template_image = cv2.imread(str(image_path))
-    image_processor = ImageProcessor.get_suitable_image_processor(template_type)
-
     roi_storage = ROIStorage(img_h=template_image.shape[0],
                              img_w=template_image.shape[1],
                              template_type=template_type)
@@ -165,3 +161,16 @@ if __name__ == "__main__":
         img_h=template_image.shape[0],
     )
     roi_storage.save_roi_json_data(updated_rois)
+
+def annotate_label_types(data_folder_path, output_path):
+    subprocess.run(["labelme", str(data_folder_path),
+                    "--output", str(output_path),
+                    "--nodata"],
+                      check=True)
+
+
+
+
+if __name__ == "__main__":
+    # annotate_template_rois("146")
+    annotate_label_types(config.IMAGES_DIR, config.ANNOTATIONS_DIR)

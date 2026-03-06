@@ -1,18 +1,17 @@
 import config
 import cv2
 from pathlib import Path
-from ROIStorage import ROIStorage
 from LabelProcessor import LabelProcessor
 from ImageProcessor import ImageProcessor
 from ResultStorage import ResultStorage
 
 def main():
-    image_name = "W151_3.jpg"
+    image_name = "W151_many_1.jpg"
     processor = LabelProcessor()
     results = processor.process_label(str(config.IMAGES_DIR / image_name))
+    results.display_text_region_images()
     results = ResultStorage(results)
-    results.generate_summary(f"W151_3_result_retrain", str(config.RESULTS_DIR))
-    results.display_regions_with_mismatches()
+    results.generate_summary(f"W151_many_1_result_retrain", str(config.RESULTS_DIR))
 
 def perform_symbol_image_differencing(querry_image_path):
     querry_image = cv2.imread(querry_image_path)
@@ -29,11 +28,17 @@ def perform_symbol_image_differencing(querry_image_path):
         diff = image_processor.calculate_image_difference(template_crop, querry_crop)
         print(f"Difference for {roi_name}: {diff}")
 
-def save_image_from_scan(label_scan_path):
+def save_image_from_scan(label_scan_path, multipage=False):
     image_processor = ImageProcessor()
     image_name = Path(label_scan_path).name.replace(".pdf", ".jpg")
-    output_image_path = config.IMAGES_DIR / image_name
-    cv2.imwrite(str(output_image_path), image_processor.convert_pdf_to_image(label_scan_path))
+    if multipage:
+        images = image_processor.convert_multipage_pdf_to_image(label_scan_path)
+        for idx, img in enumerate(images):
+            output_image_path = config.IMAGES_DIR / f"{image_name.replace('.jpg', '')}_{idx+1}.jpg"
+            cv2.imwrite(str(output_image_path), img)
+    else:
+        output_image_path = config.IMAGES_DIR / image_name
+        cv2.imwrite(str(output_image_path), image_processor.convert_pdf_to_image(label_scan_path))
 
 def save_deskewed_aligned_and_cropped_image(image_name, template_type):
     image_path = str(config.IMAGES_DIR / image_name)
@@ -46,11 +51,11 @@ def save_deskewed_aligned_and_cropped_image(image_name, template_type):
 
 
 def save_orb_aligned_image():
-    image_name = "W146.jpg"
+    image_name = "W151_2_1.jpg"
     image_path = str(config.IMAGES_DIR / image_name)
     full_label_image = cv2.imread(image_path)  
     image_processor = ImageProcessor()
-    template_type, full_label_image = image_processor.orb_align_and_clasify(full_label_image)
+    template_type, full_label_image = image_processor.orb_align_and_clasify(full_label_image, visualize=True)
 
     # specialize image processor to the template
 
@@ -101,5 +106,6 @@ def transfer_roi_coordinates():
 
 if __name__ == "__main__":
     # perform_symbol_image_differencing(str(config.IMAGES_DIR / "W151_2_gs.jpg"))
-    save_deskewed_aligned_and_cropped_image("W151_2_gs.jpg", "151")
-    # main()
+    # save_deskewed_aligned_and_cropped_image("W151_2_gs.jpg", "151")
+    # save_orb_aligned_image()
+    main()

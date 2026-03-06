@@ -6,10 +6,9 @@ import config
 import json
 
 class ResultStorage:
-    def __init__(self, results: LabelResult):
+    def __init__(self, results: LabelResult, gt_file_path: str = None):
         self.extracted_texts: dict[str, str] = {k: v.lower() for k, v in results.get_extracted_texts().items()}
         self.extracted_barcodes: dict[str, str] = results.get_extracted_barcodes()    
-        gt_file_path = config.GT_FILES.get(results.template_type, None)
         self._text_region_images = results._text_region_images
         self._barcode_images = results._barcode_images
 
@@ -118,7 +117,7 @@ class ResultStorage:
         cv2.destroyAllWindows()
     
     def add_metric_info_to_summary(self):
-        lines = ["Metric summary:"]
+        lines = [self.summary_text, "\n\nMetric summary:"]
         for metric_name, metric_value in self.metrics.items():
             lines.append(f"{metric_name}: {metric_value}")
         self.summary_text = "\n".join(lines)
