@@ -51,3 +51,32 @@ def display_region_image(roi_name: str, image: np.ndarray, result: str):
         # Convert back to numpy for cv2.imshow
         image_np = np.array(new_image)
         cv2.imshow(roi_name, image_np)
+
+def remove_markup_from_image(image: np.ndarray) -> np.ndarray:
+    # mask = np.all(image == [255, 0, 0], axis=2)
+    # mask |= np.all(image == [255, 31, 31], axis=2)
+    # mask |= np.all(image == [255, 169,169], axis=2)
+    mask = cv2.inRange(image, np.array([255, 0, 0]), np.array([255, 254, 254]))
+    cleaned_image = image.copy()
+    cleaned_image[mask == 255] = [255, 255, 255]
+
+    return cleaned_image
+
+if __name__ == "__main__":
+    from pathlib import Path
+
+    base = Path(__file__).parent.parent.resolve()
+    img_path = base / "images" / "151" / "loftware" / "99TV.png"
+    image = cv2.imread(str(img_path))
+    cv2.imshow("Original Image", image)
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    cleaned_image = remove_markup_from_image(image)
+    save_path = img_path.parent / f"{img_path.stem}_cleaned{img_path.suffix}"
+    cv2.imwrite(str(save_path), cleaned_image)
+
+    cv2.imshow("Cleaned Image", cleaned_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()

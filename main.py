@@ -1,17 +1,30 @@
 import config
 import cv2
 from pathlib import Path
-from LabelProcessor import LabelProcessor
-from ImageProcessor import ImageProcessor
-from ResultStorage import ResultStorage
+from modules.LabelProcessor import LabelProcessor
+from modules.ImageProcessor import ImageProcessor
+from modules.ResultStorage import ResultStorage
+
 
 def main():
     image_name = "W151_many_1.jpg"
+    gt_name = "W151_many_1_gt.json"
+    gt_path = config.GT_DIR / gt_name
     processor = LabelProcessor()
-    results = processor.process_label(str(config.IMAGES_DIR / image_name))
+    results = processor.process_label(str(config.IMAGES_DIR /"151" / image_name))
     results.display_text_region_images()
-    results = ResultStorage(results)
+    results = ResultStorage(results, gt_path)
     results.generate_summary(f"W151_many_1_result_retrain", str(config.RESULTS_DIR))
+
+def generate_train_data(template_type):
+    image_dir = config.IMAGES_DIR / template_type
+    output_dir = config.BASE_DIR / "annomaly_detection" / "train_data"
+    for image_path in image_dir.glob("*.jpg"):
+        image = cv2.imread(str(image_path))
+        processor = ImageProcessor()
+        aligned_image =processor.orb_align(image, template_type, n_features=500, max_matches=100)
+        cv2.imwrite(str(output_dir / image_path.name), aligned_image)
+
 
 def perform_symbol_image_differencing(querry_image_path):
     querry_image = cv2.imread(querry_image_path)
@@ -89,7 +102,7 @@ def test_image_differencing():
     print(f"SSIM: {ssim_diff:.4f}")
 
 def transfer_roi_coordinates():
-    from ROIStorage import ROIStorage
+    from modules.ROIStorage import ROIStorage
     import json
     image_name = "W151.jpg"
     img =cv2.imread(str(config.IMAGES_DIR / image_name))
@@ -105,7 +118,4 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    # perform_symbol_image_differencing(str(config.IMAGES_DIR / "W151_2_gs.jpg"))
-    # save_deskewed_aligned_and_cropped_image("W151_2_gs.jpg", "151")
-    # save_orb_aligned_image()
     main()

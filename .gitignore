@@ -6,6 +6,8 @@ templates/
 training_data/
 *yolo26*
 yolo_runs/
+*train*
+parsed_data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

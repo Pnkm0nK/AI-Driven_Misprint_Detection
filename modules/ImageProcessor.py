@@ -12,22 +12,6 @@ class ImageProcessor():
         dotenv.load_dotenv()
         self.poppler_path = os.getenv("POPPLER_PATH")
     
-    def convert_pdf_to_image(self, pdf_path: str, dpi: int = 300)-> np.ndarray:
-        '''
-        Convert a single-page PDF to an image using pdf2image. Returns the image as a numpy array in BGR format.
-        '''
-        images = pdf2image.convert_from_path(pdf_path= pdf_path, dpi=dpi,
-                                            poppler_path=self.poppler_path)
-        return cv2.cvtColor(
-            np.array(images[0]), cv2.COLOR_RGB2BGR
-        ) 
-    
-    def convert_multipage_pdf_to_image(self, pdf_path: str, dpi: int = 300) -> np.ndarray:
-        images = pdf2image.convert_from_path(pdf_path= pdf_path, dpi=dpi,
-                                            poppler_path=self.poppler_path)
-        cv_images = [cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR) for img in images]
-        return cv_images
-    
     def convert_to_greyscale(self, img: np.ndarray) -> np.ndarray:
         '''
         Convert an image to grayscale if it is in color. If the image is already in grayscale, return it as is

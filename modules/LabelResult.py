@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from utils import display_region_image
+from utilities.utils import display_region_image
 from custom_types import ROICollection
 
 class LabelResult:
@@ -11,7 +11,7 @@ class LabelResult:
                  text_region_images: dict[str,np.ndarray],
                  barcode_images: dict[str,np.ndarray],
                  symbol_images: dict[str,np.ndarray],
-                 aligned_image: np.ndarray):
+                 aligned_image: np.ndarray, run_times: dict[str, float] | None = None):
         '''
         Docstring for __init__
 
@@ -29,6 +29,8 @@ class LabelResult:
         :type barcode_images: dict[str, np.ndarray]
         :param aligned_image: The aligned full label image.
         :type aligned_image: np.ndarray
+        :param run_times: Dictionary mapping each processing step to its execution time.
+        :type run_times: dict[str, float] | None
         '''
         self.template_type = template_type
         self.region_texts = region_texts
@@ -38,6 +40,7 @@ class LabelResult:
         self._text_region_images = text_region_images
         self._barcode_images = barcode_images
         self._symbol_images = symbol_images
+        self.run_times = run_times
 
     def get_extracted_texts(self) -> dict[str, str]:
         return self.region_texts

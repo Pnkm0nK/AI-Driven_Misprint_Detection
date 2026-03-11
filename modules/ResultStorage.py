@@ -1,7 +1,7 @@
 import cv2
-from utils import display_region_image
-from metrics import calculate_character_error_rate
-from LabelResult import LabelResult
+from utilities.utils import display_region_image
+from utilities.metrics import calculate_character_error_rate
+from modules.LabelResult import LabelResult
 import config
 import json
 
@@ -11,6 +11,7 @@ class ResultStorage:
         self.extracted_barcodes: dict[str, str] = results.get_extracted_barcodes()    
         self._text_region_images = results._text_region_images
         self._barcode_images = results._barcode_images
+        self._run_times = results.run_times
 
         try:
             with open(gt_file_path, 'r', encoding='utf-8') as f:
@@ -116,6 +117,11 @@ class ResultStorage:
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     
+    def add_run_times_to_summary(self):
+        self.summary_text += "\nProcessing step execution times:\n"
+        for step_name, run_time in self._run_times.items():
+            self.summary_text += f"{step_name}: {run_time:.2f} seconds\n"
+    
     def add_metric_info_to_summary(self):
         lines = [self.summary_text, "\n\nMetric summary:"]
         for metric_name, metric_value in self.metrics.items():
@@ -129,6 +135,7 @@ class ResultStorage:
         self.add_metric_info_to_summary()
         if verbose:
             self.add_text_mismatches_to_summary()
+        self.add_run_times_to_summary()
         self.save_summary_to_txt(output_txt_path=f"{output_dir}/{summary_name}.txt")
         if json_output:
             self.save_extracted_texts_to_json(output_json_path=f"{output_dir}/{summary_name}.json")

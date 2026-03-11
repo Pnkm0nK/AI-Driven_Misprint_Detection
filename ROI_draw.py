@@ -3,7 +3,7 @@ import os
 import cv2
 import subprocess
 from pathlib import Path
-from ROIStorage import ROIStorage, ROICollection
+from modules.ROIStorage import ROIStorage, ROICollection
 import json
 import config
 
