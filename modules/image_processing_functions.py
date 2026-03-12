@@ -1,0 +1,262 @@
+import numpy as np
+import cv2
+from deskew import determine_skew
+import config
+
+def convert_to_greyscale(img: np.ndarray) -> np.ndarray:
+    '''
+    Convert an image to grayscale if it is in color. If the image is already in grayscale, return it as is
+    '''
+    if img.ndim == 3 and img.shape[2] == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    elif img.ndim == 3 and img.shape[2] == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+    return img
+
+
+def threshold_image(image: np.ndarray) -> np.ndarray:
+    '''
+    Apply Otsu's thresholding to binarize the input image. Returns the thresholded image.
+    '''
+    _, thresh = cv2.threshold(image, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return thresh
+
+
+def extract_roi(image: np.ndarray, coordinates: tuple[int, int, int, int]) -> np.ndarray:
+    x0, y0, x1, y1 = coordinates
+    roi_image = image[y0:y1, x0:x1]
+    return roi_image
+
+
+def deskew_image(image:np.ndarray) -> np.ndarray:
+    '''
+    Deskews input image using the deskew library and affine transform
+
+    :param image: Input image to be deskewed
+    :type image: np.ndarray
+
+    :return: Deskewed image
+    :rtype: np.ndarray
+    '''
+    skew_angle = determine_skew(image, max_angle=30)
+    rot_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), skew_angle, 1)
+    image = cv2.warpAffine(image, rot_mat, (image.shape[1],image.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255,255,255))
+    return image
+
+
+def get_template_matching_results(image: np.ndarray, template_image_path: str) -> tuple[float, tuple[int, int]]:
+    '''
+    Gets the template matching score and location for the given image and template. The score is the normalized least square difference.
+    
+    :param image: image to match against template
+    :type image: np.ndarray
+    :param template_image_path: Path to the template image to match
+    :type template_image_path: str
+    :return: A tuple containing the matching score and the top-left location of the best match
+    :rtype: tuple[float, tuple[int, int]]
+    '''
+    image = convert_to_greyscale(image)
+    template_image = cv2.imread(template_image_path, cv2.IMREAD_GRAYSCALE)
+    assert template_image is not None, "Template image not found or could not be loaded."
+
+    res = cv2.matchTemplate(image,template_image,cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(res)
+    return min_val, min_loc
+
+def align_image(image: np.ndarray, template_image_path: str) -> np.ndarray:
+    '''
+    Align the input image to the template image using deskewing and template matching. Returns the aligned image.
+    '''
+    deskewed = deskew_image(image)
+
+    _, loc = get_template_matching_results(deskewed, template_image_path)
+
+    padding = config.PADDING
+
+    x_start, y_start = loc 
+    x_start -= padding
+    if x_start < 0:
+        deskewed = cv2.copyMakeBorder(deskewed, padding-x_start, 0, 0, 0, cv2.BORDER_CONSTANT, value=[255,255,255])
+        x_start = 0
+    return deskewed[y_start:, x_start:]
+
+def unsharp(image: np.ndarray, kernel_size=(1,1), sigma=2, amount=2.0, threshold=0) -> np.ndarray:
+    blurred = cv2.GaussianBlur(image, kernel_size, sigma)
+    sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, threshold)
+    return sharpened
+
+def _align_using_orb_matches(matches, src_kps, dst_kps, template, original_image):
+    if len(matches) < 4:
+        raise ValueError(f"Not enough matches to estimate transform: {len(matches)} < 4")
+
+    src_pts = np.float32([src_kps[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([dst_kps[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+    # No perspective change, using affine transform for deskewing and translation correction
+    M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
+
+    if M is None:
+        raise ValueError("estimateAffinePartial2D failed — not enough RANSAC inliers.")
+
+    return cv2.warpAffine(original_image, M, (template.shape[1], template.shape[0]),
+                            flags=cv2.INTER_CUBIC,
+                            borderMode=cv2.BORDER_CONSTANT,
+                            borderValue=(255, 255, 255))
+
+def orb_align(image: np.ndarray, template_type:str, n_features:int=100, max_matches: int = 15, visualize=False)-> np.ndarray:
+    '''
+    Align the input image to the specified template type using ORB feature matching. Returns the aligned image.
+    :param image: Input image to be aligned
+    :type image: np.ndarray 
+    :param template_type: The type of template to align to (e.g., "151", "146", "107")
+    :type template_type: str
+    :param n_features: Number of ORB features to detect
+    :type n_features: int
+    :param max_matches: Maximum number of ORB matches to consider for alignment
+    :type max_matches: int
+    :param visualize: Whether to visualize the ORB matches and alignment results
+    :type visualize: bool
+
+    :return: Aligned image
+    :rtype: np.ndarray
+    '''
+    original_image = image.copy()
+    image = convert_to_greyscale(image)
+    template_img_path = config.TEMPLATES[template_type]
+    template = cv2.imread(str(template_img_path), cv2.IMREAD_GRAYSCALE)
+
+    orb = cv2.ORB_create(nfeatures=n_features)
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+    src_kps, query_descrs = orb.detectAndCompute(image, None)
+
+    assert template is not None, f"Failed to load template image at {template_img_path}"
+    dst_kps, target_descrs = orb.detectAndCompute(template, None)
+    # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
+    matches = bf.match(query_descrs, target_descrs)
+    matches = sorted(matches, key=lambda x: x.distance)
+    matches = matches[:min(max_matches, len(matches))]
+
+    if visualize:
+        # reload template in color for visualization only
+        img_match = cv2.drawMatches(image, src_kps, template, dst_kps, matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        height, width = img_match.shape[:2]
+        aspect_ratio = width / height
+        width = 800
+        height = int(width / aspect_ratio)
+        img_match = cv2.resize(img_match, (width, height))
+
+        cv2.imshow("Matches", img_match)
+        cv2.waitKey(0)
+    return _align_using_orb_matches(matches, src_kps, dst_kps, template, original_image)
+
+def orb_align_and_clasify( image: np.ndarray, n_features:int=200, max_matches: int = 50, visualize=False) -> tuple[str, np.ndarray]:
+    '''
+    Classify and align the input image to the best matching template using ORB feature matching.
+    Returns the estimated template name and the aligned image.
+
+    on my pc shows 0.24 seconds computation time for 30 features and 10 matches per image on average
+    
+    :param image: Input image to be aligned 
+    :type image: np.ndarray
+    :param n_features: Number of ORB features to detect
+    :type n_features: int
+    :param max_matches: Maximum number of ORB matches to consider for alignment
+    :type max_matches: int
+    :param visualize: Whether to visualize the ORB matches and alignment results
+    :return: Estimated template name and aligned image in a tuple
+    :rtype: tuple[str, np.ndarray]
+    '''
+
+    original_image = image.copy()
+    image = convert_to_greyscale(image)
+
+    orb = cv2.ORB_create(nfeatures=n_features)
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+    src_kps, query_descrs = orb.detectAndCompute(image, None)
+
+    # go through templates and find best match based on total distance of top matches
+    # save intermediate results to reuse in alignment step and visualization
+    least_distance = float("inf") 
+    estimated_template_type = None
+    best_matches = []
+    best_dst_kps = []
+
+    for template_type, template_img_path in config.TEMPLATES.items():
+        template = cv2.imread(template_img_path, cv2.IMREAD_GRAYSCALE)
+        assert template is not None, f"Failed to load template image at {template_img_path}"
+        dst_kps, target_descrs = orb.detectAndCompute(template, None)
+        # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
+        matches = bf.match(query_descrs, target_descrs)
+        matches = sorted(matches, key=lambda x: x.distance)
+        top = matches[:min(max_matches, len(matches))]
+        total_distance = (sum(m.distance for m in top) / len(top)) if top else float("inf")
+
+        if total_distance < least_distance:
+            least_distance = total_distance
+            estimated_template_type = template_type
+            best_dst_kps = dst_kps
+            best_matches = top
+
+    best_template = cv2.imread(config.TEMPLATES[estimated_template_type], cv2.IMREAD_GRAYSCALE) 
+    aligned_image = _align_using_orb_matches(best_matches, src_kps, best_dst_kps, best_template, original_image)
+
+    if visualize:
+        # reload template in color for visualization only
+        cv2.imshow("aligned", aligned_image)
+        cv2.waitKey(0)
+        img_match = cv2.drawMatches(image, src_kps, best_template, best_dst_kps, best_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        height, width = img_match.shape[:2]
+        aspect_ratio = width / height
+        width = 800
+        height = int(width / aspect_ratio)
+        img_match = cv2.resize(img_match, (width, height))
+
+        cv2.imshow("Matches", img_match)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    return estimated_template_type, aligned_image
+
+def calculate_image_difference(image1: np.ndarray, image2: np.ndarray, visualize: bool = True) -> np.ndarray:
+    # greyscale and threshold both images to reduce difference to variable info only
+    # pixel intensities may differ slightly due to scanning differences
+
+    image1 = convert_to_greyscale(image1)
+    image2 = convert_to_greyscale(image2)
+
+    # ecc may be helpful to lessen misalignment issues
+    # in experiments lead to ~20% reduction in difference
+    # which is not enough to make a sensitive enough detection
+
+    image1 = threshold_image(image1)
+    image2 = threshold_image(image2)
+    print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
+
+    diff_M = cv2.absdiff(image1, image2)
+    _, diff_M = cv2.threshold(diff_M, 30, 255, cv2.THRESH_BINARY)
+
+    # Morphological opening removes isolated noise specks without
+    # expanding real differences (replaces the previous dilate)
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    diff_M = cv2.morphologyEx(diff_M, cv2.MORPH_OPEN, open_kernel)
+
+    diff_sum = int(np.sum(diff_M))
+
+    if visualize:
+        print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
+        for title, img in [("Image 1", image1), ("Image 2", image2), ("Difference Image", diff_M)]:
+            resized = cv2.resize(img, (0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_NEAREST)
+            cv2.imshow(title, resized)
+            cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    return diff_sum
+
+def calculate_ssim(image1: np.ndarray, image2: np.ndarray) -> float:
+    from skimage.metrics import structural_similarity as ssim
+    # ensure images are greyscaled
+    image1 = convert_to_greyscale(image1)
+    image2 = convert_to_greyscale(image2)
+    ssim_value = ssim(image1, image2)
+    return ssim_value
