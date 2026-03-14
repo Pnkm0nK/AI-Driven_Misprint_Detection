@@ -5,16 +5,20 @@ import random
 import string
 import time
 import re
-from modules.ImageProcessor import ImageProcessor
+import config
+import modules.image_processing_functions as ipf
+from tqdm import tqdm
 
 import pyperclip
 import pyautogui
 import pytesseract
 from PIL import ImageGrab
 
-PAUSE = 0.5          # seconds between actions for pyautogui
+PAUSE = 0.6          # seconds between actions for pyautogui
 DRAG_DURATION = 0.5 
-SAVE_DIR = Path("./parsed_data")       # directory to save screenshots
+
+BASE = config.BASE_DIR
+SAVE_DIR = BASE / "parsed_data"       # directory to save screenshots
 
 def check_already_exists(code: str) -> bool:
     """Check if a file with the given code already exists in the SAVE_DIR."""
@@ -71,7 +75,6 @@ def get_text_via_clipboard(x: int, y: int) -> str:
     pyperclip.copy("")  # clear clipboard first
     pyautogui.click(x, y)
     pyautogui.click(x, y, clicks=3, interval=0.1)
-    time.sleep(0.1)   
     pyautogui.rightClick(x, y)
     pyautogui.click(x + 30, y + 20)  # Click on the "Copy" option in the context menu
     result = pyperclip.paste().strip()
@@ -79,27 +82,34 @@ def get_text_via_clipboard(x: int, y: int) -> str:
     return result
 
 
-def main():
+def parse_data_from_loftware(doc_qnt=30):
+
+    root = Path(__file__).parent.resolve() 
+    fit_img_path = str(root / "fit.png")
+    drag_img_path = str(root / "drag.png")
+    close_img_path = str(root / "close.png")
+
     print("Starting in 5 seconds — switch to your browser window now...")
+    print("Parsing 30 labels:")
     time.sleep(5)
 
     pyautogui.PAUSE = PAUSE
     pyautogui.FAILSAFE = True  # move mouse to top-left corner to abort
 
-    for _ in range(30):
+    for _ in tqdm(range(doc_qnt), desc="Parsing labels"):
         # --- Step 1: Click reprint ---
         code = random_unique_code()
         print(f"Generated code: {code}")
         pyautogui.click(450, 500, duration=0.2)  # click with a slight duration for reliability
-        time.sleep(2)
+        time.sleep(5.5)
         pyautogui.typewrite(code, interval=0.05)
         pyautogui.press("enter")
-        print("Typed code and pressed Enter.")
+        time.sleep(1.5)
+        # Typed code and pressed Enter
 
         # --- Step 2: Click Search ---
-        pyautogui.click(450, 420)
-        print("Clicked search.")
-        time.sleep(5)
+        pyautogui.click(450, 420)  # Clicked search
+        time.sleep(8)
 
         # --- Step 3: OCR region (115,540)-(150,555) to get label text ---
         coords_ocr = (121, 545, 200, 570)
@@ -113,58 +123,48 @@ def main():
             code = random_unique_code()
             pyautogui.typewrite(code, interval=0.05)
             pyautogui.press("enter")
-            print("Typed code and pressed Enter.")
-            pyautogui.click(450, 420)
-            print("Clicked search.")
-            time.sleep(5)
+            # Typed code and pressed Enter
+            pyautogui.click(450, 420)  # Clicked search
+            time.sleep(8)
             ocr_text = ocr_region(*coords_ocr)
 
         clipboard_text = get_text_via_clipboard(137, 550)
         filename_base = sanitize_filename(clipboard_text)
 
         # --- Step 4: Click Row---
-        pyautogui.click(140, 555)
-        print("Clicked row.")
+        pyautogui.click(140, 555)  # Clicked row
 
-        pyautogui.click(320,850, duration=0.2)
-        print("Clicked continue.")
+        pyautogui.click(320,850, duration=0.2)  # Clicked continue
         time.sleep(4.5)
 
-        pyautogui.click(560,645, duration=0.2)
-        print("Clicked print preview.")
-        time.sleep(18)
+        pyautogui.click(560,645, duration=0.2)  # Clicked print preview
+        time.sleep(20)
 
         # --- Step 5: Drag (320,320) -> (50,50) ---
         pyautogui.moveTo(880, 530, duration=0.2)
-        pyautogui.dragTo(100, 320, duration=DRAG_DURATION, button="left")
-        print("Dragged preview.")
+        pyautogui.dragTo(100, 320, duration=DRAG_DURATION, button="left")  # Dragged preview
 
         # --- Step 6: Drag template matched results to (1900,990) ---
-        processor = ImageProcessor()
         # Capture full screen and convert to numpy array for template matching
         screen = ImageGrab.grab()
         screen_np = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
-        _, loc = processor.get_template_matching_results(screen_np, "./drag.png")
+        _, loc = ipf.get_template_matching_results(screen_np, drag_img_path)
         x, y = loc
         pyautogui.moveTo(x, y, duration=0.2)
-        pyautogui.dragTo(1930, 1000, duration=DRAG_DURATION, button="left")
-        print("Dragged to improve quality")
+        pyautogui.dragTo(1930, 1000, duration=DRAG_DURATION, button="left")  # Dragged to improve quality
 
         screen = ImageGrab.grab()
         screen_np = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
-        _, loc = processor.get_template_matching_results(screen_np, "./fit.png")
+        _, loc = ipf.get_template_matching_results(screen_np, fit_img_path)
         x, y = loc
-        pyautogui.click(x+40, y+10, duration=0.2)
-        print("fitted to window")
+        pyautogui.click(x+40, y+10, duration=0.2)  # Fitted to window
         pyautogui.rightClick(900,540, duration=0.2)
-        pyautogui.click(910,600, duration=0.2)
-        print("Clicked 'Copy image' from context menu.")
+        pyautogui.click(910,600, duration=0.2)  # Clicked 'Copy image' from context menu
         screen = ImageGrab.grab()
         screen_np = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
-        _, loc = processor.get_template_matching_results(screen_np, "./close.png")
+        _, loc = ipf.get_template_matching_results(screen_np, close_img_path)
         x, y = loc
-        pyautogui.click(x+30, y+13, duration=0.2)
-        print("closed")
+        pyautogui.click(x+30, y+13, duration=0.2)  # Closed
         pyautogui.click(50,260, duration=0.2)
 
         # --- Get copied image from clipboard ---
@@ -181,9 +181,4 @@ def main():
             cv2.imwrite(str(save_path), clipboard_img)
             print(f"Clipboard image saved to: {save_path}")
     
-        time.sleep(5)
-
-
-
-if __name__ == "__main__":
-    main()
+        time.sleep(7)
