@@ -5,9 +5,9 @@ import os
 import pytesseract
 import dotenv
 from ultralytics import YOLO
-import multiprocessing
 import zxingcpp as zxing
 import time
+from modules.PDFConverter import PDFConverter
 
 from modules.ImageProcessor import ImageProcessor
 from modules.LabelResult import LabelResult
@@ -20,6 +20,7 @@ class LabelProcessor:
     Class for e2e processing of label scans.
     Use process_label() to run the full pipeline on a given label scan(pdf or image file).
     After processing, use get_extracted_texts() and get_extracted_barcodes() to retrieve
+    import PDFConverter
     results after processing.
     display_all_region_images() can be used to visualize the extracted region images and their OCR results.
     '''
@@ -124,10 +125,11 @@ class LabelProcessor:
            :param scan: Path to the label scan (pdf or image file) or an image numpy array
            :type scan: str | np.ndarray
         '''
+        converter = PDFConverter()
         if isinstance(scan, np.ndarray):
             return scan
         elif scan.lower().endswith(".pdf"):
-            return self.image_processor.convert_pdf_to_image(scan)
+            return converter.convert_pdf_to_image(scan)
         elif scan.lower().endswith((".jpg", ".jpeg", ".png")):
             return cv2.imread(scan)
 

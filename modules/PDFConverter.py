@@ -5,6 +5,7 @@ import numpy as np
 class PDFConverter:
     def __init__(self, poppler_path: str):
         self.poppler_path = poppler_path
+
     def convert_pdf_to_image(self, pdf_path: str, dpi: int = 300)-> np.ndarray:
         '''
         Convert a single-page PDF to an image using pdf2image. Returns the image as a numpy array in BGR format.

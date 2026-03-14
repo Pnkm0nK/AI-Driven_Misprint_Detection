@@ -3,7 +3,9 @@ import cv2
 from pathlib import Path
 from modules.LabelProcessor import LabelProcessor
 from modules.ImageProcessor import ImageProcessor
+import modules.image_processing_functions as ipf
 from modules.ResultStorage import ResultStorage
+from utilities.data_parser import parse_data_from_loftware
 
 
 def main():
@@ -21,8 +23,7 @@ def generate_train_data(template_type):
     output_dir = config.BASE_DIR / "annomaly_detection" / "train_data"
     for image_path in image_dir.glob("*.jpg"):
         image = cv2.imread(str(image_path))
-        processor = ImageProcessor()
-        aligned_image =processor.orb_align(image, template_type, n_features=500, max_matches=100)
+        aligned_image =ipf.orb_align(image, template_type, n_features=500, max_matches=100)
         cv2.imwrite(str(output_dir / image_path.name), aligned_image)
 
 
@@ -57,9 +58,8 @@ def save_deskewed_aligned_and_cropped_image(image_name, template_type):
     image_path = str(config.IMAGES_DIR / image_name)
     template_path = str(config.LOGO_TEMPLATES[template_type])
     full_label_image = cv2.imread(image_path)  
-    image_processor = ImageProcessor()
-    processed_image = image_processor.align_image(full_label_image, template_path)
-    processed_image = image_processor.extract_roi(processed_image, config.LABEL_DIMENSIONS[template_type])
+    processed_image = ipf.align_image(full_label_image, template_path)
+    processed_image = ipf.extract_roi(processed_image, config.LABEL_DIMENSIONS[template_type])
     cv2.imwrite(str(config.IMAGES_DIR / f"{image_name.replace('.jpg', '')}_aligned_cropped.jpg"), processed_image)
 
 
@@ -67,8 +67,7 @@ def save_orb_aligned_image():
     image_name = "W151_2_1.jpg"
     image_path = str(config.IMAGES_DIR / image_name)
     full_label_image = cv2.imread(image_path)  
-    image_processor = ImageProcessor()
-    template_type, full_label_image = image_processor.orb_align_and_clasify(full_label_image, visualize=True)
+    template_type, full_label_image = ipf.orb_align_and_classify(full_label_image, visualize=True)
 
     # specialize image processor to the template
 
@@ -118,4 +117,4 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    main()
+    parse_data_from_loftware(doc_qnt=18)
