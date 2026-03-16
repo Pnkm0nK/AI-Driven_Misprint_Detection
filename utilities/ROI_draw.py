@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from modules.ROIStorage import ROIStorage, ROICollection
 import json
-import config
+import utilities.config as config
 
 '''
 Script for creating and editing ROIS using labelme lib

@@ -1,4 +1,5 @@
-import config
+import utilities.config as config
+import os
 import cv2
 from pathlib import Path
 from modules.LabelProcessor import LabelProcessor
@@ -6,6 +7,7 @@ from modules.ImageProcessor import ImageProcessor
 import modules.image_processing_functions as ipf
 from modules.ResultStorage import ResultStorage
 from utilities.data_parser import parse_data_from_loftware
+import utilities.utils as utils
 
 
 def main():
@@ -26,6 +28,18 @@ def generate_train_data(template_type):
         aligned_image =ipf.orb_align(image, template_type, n_features=500, max_matches=100)
         cv2.imwrite(str(output_dir / image_path.name), aligned_image)
 
+def remove_markup_from_images(image_folder, output_folder):
+    os.makedirs(output_folder, exist_ok=True)
+
+    for file in os.listdir(image_folder):
+        if file.endswith(".jpg") or file.endswith(".png"):
+            image_path = os.path.join(image_folder, file)
+            image = cv2.imread(image_path)
+            cleaned_image = utils.remove_markup_from_image(image)
+            output_path = os.path.join(output_folder, file)
+            # write as jpg
+            output_path = output_path.replace(".png", ".jpg")
+            cv2.imwrite(output_path, cleaned_image)
 
 def perform_symbol_image_differencing(querry_image_path):
     querry_image = cv2.imread(querry_image_path)
@@ -61,7 +75,6 @@ def save_deskewed_aligned_and_cropped_image(image_name, template_type):
     processed_image = ipf.align_image(full_label_image, template_path)
     processed_image = ipf.extract_roi(processed_image, config.LABEL_DIMENSIONS[template_type])
     cv2.imwrite(str(config.IMAGES_DIR / f"{image_name.replace('.jpg', '')}_aligned_cropped.jpg"), processed_image)
-
 
 def save_orb_aligned_image():
     image_name = "W151_2_1.jpg"
@@ -117,4 +130,4 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    parse_data_from_loftware(doc_qnt=18)
+    main()

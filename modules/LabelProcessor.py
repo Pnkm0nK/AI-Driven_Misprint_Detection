@@ -7,13 +7,14 @@ import dotenv
 from ultralytics import YOLO
 import zxingcpp as zxing
 import time
-from modules.PDFConverter import PDFConverter
 
+from modules.PDFConverter import PDFConverter
 from modules.ImageProcessor import ImageProcessor
 from modules.LabelResult import LabelResult
 from modules.ROIStorage import ROIStorage
-from custom_types import ROICollection
-import config
+from utilities.custom_types import ROICollection
+import modules.image_processing_functions as ipf
+import utilities.config as config
 
 class LabelProcessor:
     '''
@@ -65,7 +66,7 @@ class LabelProcessor:
             self.run_times["YOLO classification"] = time.time() - start_time
 
         start_time = time.time()
-        self.full_label_image =self.image_processor.orb_align(self.full_label_image, template_type, n_features=200, max_matches=30)
+        self.full_label_image =ipf.orb_align(self.full_label_image, template_type, n_features=200, max_matches=30)
         self.run_times["ORB alignment"] = time.time() - start_time
 
         # specialize image processor to the template
@@ -162,7 +163,7 @@ class LabelProcessor:
     def _extract_preprocessed_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
         for roi_name, coords in roi_coordinates.items():
-            image = self.image_processor.extract_roi(self.full_label_image, coords)
+            image = ipf.extract_roi(self.full_label_image, coords)
             image = self.image_processor.preprocess_region_image(roi_name, image)
             region_images[roi_name] = image
         return region_images
@@ -170,7 +171,7 @@ class LabelProcessor:
     def _extract_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
         for roi_name, coords in roi_coordinates.items():
-            image = self.image_processor.extract_roi(self.full_label_image, coords)
+            image = ipf.extract_roi(self.full_label_image, coords)
             region_images[roi_name] = image
         return region_images
     

@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from deskew import determine_skew
-import config
+import utilities.config as config
 
 def convert_to_greyscale(img: np.ndarray) -> np.ndarray:
     '''

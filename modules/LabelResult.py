@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from utilities.utils import display_region_image
-from custom_types import ROICollection
+from utilities.custom_types import ROICollection
 
 class LabelResult:
     def __init__(self, template_type: str,

@@ -2,7 +2,7 @@ import cv2
 from utilities.utils import display_region_image
 from utilities.metrics import calculate_character_error_rate
 from modules.LabelResult import LabelResult
-import config
+import utilities.config as config
 import json
 
 class ResultStorage:

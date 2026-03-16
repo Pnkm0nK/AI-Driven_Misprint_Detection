@@ -1,6 +1,6 @@
 import json
-from config import ROI_FILES
-from custom_types import ROICollection, ROIObject
+from utilities.config import ROI_FILES
+from utilities.custom_types import ROICollection, ROIObject
 
 class ROIStorage:
     def __init__(self, img_w: int, img_h: int, template_type: str):

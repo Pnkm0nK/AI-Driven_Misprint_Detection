@@ -5,7 +5,7 @@ import random
 import string
 import time
 import re
-import config
+import utilities.config as config
 import modules.image_processing_functions as ipf
 from tqdm import tqdm
 
