@@ -1,6 +1,6 @@
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
+BASE_DIR = Path(__file__).parent.parent.resolve()
 
 IMAGES_DIR   = BASE_DIR / "images"
 ROI_DIR      = BASE_DIR / "roi_data"

@@ -8,6 +8,9 @@ training_data/
 yolo_runs/
 *train*
 parsed_data
+experiments
+anomalous_data
+mlruns
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

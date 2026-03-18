@@ -3,6 +3,7 @@ import os
 import cv2
 from pathlib import Path
 from modules.LabelProcessor import LabelProcessor
+from modules.PDFConverter import PDFConverter
 from modules.ImageProcessor import ImageProcessor
 import modules.image_processing_functions as ipf
 from modules.ResultStorage import ResultStorage
@@ -57,16 +58,16 @@ def perform_symbol_image_differencing(querry_image_path):
         print(f"Difference for {roi_name}: {diff}")
 
 def save_image_from_scan(label_scan_path, multipage=False):
-    image_processor = ImageProcessor()
+    processor = PDFConverter()
     image_name = Path(label_scan_path).name.replace(".pdf", ".jpg")
     if multipage:
-        images = image_processor.convert_multipage_pdf_to_image(label_scan_path)
+        images = processor.convert_multipage_pdf_to_image(label_scan_path)
         for idx, img in enumerate(images):
             output_image_path = config.IMAGES_DIR / f"{image_name.replace('.jpg', '')}_{idx+1}.jpg"
             cv2.imwrite(str(output_image_path), img)
     else:
         output_image_path = config.IMAGES_DIR / image_name
-        cv2.imwrite(str(output_image_path), image_processor.convert_pdf_to_image(label_scan_path))
+        cv2.imwrite(str(output_image_path), processor.convert_pdf_to_image(label_scan_path))
 
 def save_deskewed_aligned_and_cropped_image(image_name, template_type):
     image_path = str(config.IMAGES_DIR / image_name)
@@ -130,4 +131,4 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    main()
+    save_image_from_scan(config.SCANS_DIR / "151_anomalous.pdf", multipage=True)

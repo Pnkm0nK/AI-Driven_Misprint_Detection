@@ -63,6 +63,26 @@ def get_template_matching_results(image: np.ndarray, template_image_path: str) -
     min_val, _, min_loc, _ = cv2.minMaxLoc(res)
     return min_val, min_loc
 
+def crop_to_content(image: np.ndarray, template_type:str) -> np.ndarray:
+    '''
+    Crops the input image to the content area based on the template type. Uses predefined cropping coordinates for each template type.
+
+    :param image: Input image to be cropped
+    :type image: np.ndarray
+    :param template_type: The type of template to determine cropping coordinates (e.g., "151", "146", "107")
+    :type template_type: str
+
+    :return: Cropped image containing only the content area
+    :rtype: np.ndarray
+    '''
+    if template_type not in config.LABEL_DIMENSIONS:
+        raise ValueError(f"Invalid template type: {template_type}. Supported types are {list(config.LABEL_DIMENSIONS.keys())}")
+    
+    coordinates = config.LABEL_DIMENSIONS[template_type]
+    return extract_roi(image, coordinates)
+
+
+
 def align_image(image: np.ndarray, template_image_path: str) -> np.ndarray:
     '''
     Align the input image to the template image using deskewing and template matching. Returns the aligned image.

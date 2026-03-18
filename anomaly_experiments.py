@@ -7,7 +7,20 @@ import mlflow
 import mlflow.sklearn
 
 from anomaly_detection.LabelNormalizer import LabelNormalizer
-from anomaly_detection.FeatureExtractor import FeatureExtractor
+from anomaly_detection.HogFeatureExtractor import HogFeatureExtractor
+import anomaly_detection.parameter_sets as param_sets
+
+JSON_PARAMS_PATH = Path(__file__).parent.resolve() / "anomaly_detection" / "parameter_sets"
+
+
+def _serialize_params_for_logging(params):
+    serialized = {}
+    for key, value in params.items():
+        if isinstance(value, (str, int, float, bool)):
+            serialized[key] = value
+        else:
+            serialized[key] = str(value)
+    return serialized
 
 def load_label_dataset(label_type, test_size=0.1, seed=20):
     base_dir = Path(__file__).parent.resolve()
@@ -21,31 +34,18 @@ def load_label_dataset(label_type, test_size=0.1, seed=20):
     train, test_normal = skl.model_selection.train_test_split(images, test_size=test_size, random_state=seed)
     return train, test_normal, test_anomaly
 
-def run_experiment(
+
+def run_feature_extraction_pipeline(pipeline_parameters,
     experiment_name: str = "feature-anomaly-detection",
     run_name: str = "gmm_orb_pca",
     label_type: str = "151", seed: int = 20,
 ):
     base_dir = Path(__file__).parent.resolve()
-    tracking_dir = base_dir / "anomaly_detection" / "experiments"
-    tracking_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(tracking_dir.resolve().as_uri())
+    db_path = base_dir / "anomaly_detection" / "experiments" / "mlflow.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    mlflow.set_tracking_uri(f"sqlite:///{db_path.as_posix()}")
 
-    threshold_percentile = 5
-    pipeline_parameters = {
-        "normalizer__strategy": "orb",
-        "normalizer__n_features": 150,
-        "feature_extractor__strategy": "orb",
-        "feature_extractor__n_features": 250,
-        "pca__n_components": 50,
-        "pca__svd_solver": "full",
-        "estimator": skm.GaussianMixture(),
-        "estimator__n_components": 1,
-        "estimator__covariance_type": "diag",
-        "estimator__reg_covar": 1e-4,
-        "estimator__n_init": 3,
-        "estimator__max_iter": 300,
-    }
+    threshold_percentile = 10
 
     train, test_normal, test_anomaly = load_label_dataset(label_type=label_type, seed=seed)
 
@@ -53,9 +53,9 @@ def run_experiment(
 
     train_pipeline = skl.pipeline.Pipeline(steps=[
         ("normalizer", LabelNormalizer()),
-        ("feature_extractor", FeatureExtractor()),
+        ("feature_extractor", HogFeatureExtractor()),
         ("scaler", skl.preprocessing.StandardScaler()),
-        ("pca", skl.decomposition.PCA(random_state=seed, whiten=True)),
+        ("dim_reduction", skl.decomposition.PCA(random_state=seed, whiten=True)),
         ("estimator", skm.GaussianMixture(
             n_components=1,
         )),
@@ -75,7 +75,7 @@ def run_experiment(
         }
 
         mlflow.log_params({
-            **pipeline_parameters,
+            **_serialize_params_for_logging(pipeline_parameters),
             **additional_params,
         })
 
@@ -101,9 +101,9 @@ def run_experiment(
         f1_score = skl.metrics.f1_score(y_true, y_pred)
 
         metrics = {
-            "avg_train_log_likelihood": float(train_scores.mean()),
-            "avg_normal_test_log_likelihood": float(normal_test_scores.mean()),
-            "avg_anomalous_test_log_likelihood": float(anomalous_test_scores.mean()),
+            "avg_train_score": float(train_scores.mean()),
+            "avg_normal_test_score": float(normal_test_scores.mean()),
+            "avg_anomalous_test_score": float(anomalous_test_scores.mean()),
             "threshold": float(threshold),
             "n_normal_test_anomalies": int(normal_test_is_anomaly.sum()),
             "n_anomalous_test_anomalies": int(anomalous_test_is_anomaly.sum()),
@@ -134,7 +134,6 @@ def run_experiment(
         print(f"Run name: {run_name}")
         print(f"Label type: {label_type}")
         print(f"Seed: {seed}")
-        print(f"MLflow tracking dir: {tracking_dir}")
         print(f"Train/NormalTest/AnomalyTest: {len(train)}/{len(test_normal)}/{len(test_anomaly)}")
 
         print("\n=== Score Statistics ===")
@@ -153,6 +152,10 @@ def run_experiment(
         print(f"MLflow run id: {mlflow.active_run().info.run_id}")
 
 
-
 if __name__ == "__main__":
-    run_experiment()
+
+    experiment_name = "feature-anomaly-detection"
+    run_name = "cos_knn_clip_PE_Core_L_14_336"
+    parameters = param_sets.cos_knn_clip_PE_Core
+
+    run_feature_extraction_pipeline(pipeline_parameters=parameters, experiment_name=experiment_name, run_name=run_name)
