@@ -1,7 +1,6 @@
 import sklearn.mixture as skm
-from anomaly_detection.ClipFeatureExtractor import ClipFeatureExtractor
-from anomaly_detection.HogFeatureExtractor import HogFeatureExtractor
-from anomaly_detection.OrbFeatureExtractor import ORBFeatureExtractor
+from anomaly_detection.FeatureExtractors import ClipFeatureExtractor, ORBFeatureExtractor, HogFeatureExtractor, CNNFeatureExtractor
+from anomaly_detection.ClipZeroShotEstimator import ClipZeroShotEstimator, WinClipZeroShotEstimator
 from anomaly_detection.CosKnnAnomalyScorer import CosKnnAnomalyScorer
 
 gmm_orb_less_pca_reduction_components = {
@@ -141,4 +140,45 @@ cos_knn_clip_PE_Core = {
     "estimator__n_neighbors": 5,
     "estimator__use_faiss": True,
     "estimator__normalize": False,
+}
+
+zero_shot_clip = {    
+    "normalizer__strategy": "orb",
+    "normalizer__downsample_factor": 0.8,
+    "normalizer__n_features": 200,
+    "normalizer__max_matches": 30,
+    "feature_extractor": "passthrough",
+    "scaler": "passthrough",
+    "dim_reduction": "passthrough",
+    "estimator": ClipZeroShotEstimator(),
+    "estimator__batch_size": 16,
+    "estimator__model_name": "PE-Core-L-14-336",
+    "estimator__pretrained": "meta",
+}
+
+resnet18_cos_knn = {
+    "normalizer__strategy": "orb",
+    "normalizer__downsample_factor": 0.8,
+    "normalizer__n_features": 200,
+    "normalizer__max_matches": 30,
+    "scaler": "passthrough",
+    "feature_extractor": CNNFeatureExtractor(),
+    "feature_extractor__batch_size": 16,
+    "feature_extractor__model_name": "resnet18",
+    "feature_extractor__pretrained": True,
+    "dim_reduction": "passthrough",
+    "estimator": CosKnnAnomalyScorer(),
+    "estimator__n_neighbors": 5,
+    "estimator__use_faiss": True,
+    "estimator__normalize": False,
+}
+
+winclip = {
+    "normalizer__strategy": "orb",
+    "normalizer__downsample_factor": 0.8,
+    "normalizer__n_features": 200,
+    "normalizer__max_matches": 30,
+    "estimator": WinClipZeroShotEstimator(),
+    "estimator__batch_size": 16,
+    "estimator__threshold": 0.5,
 }
