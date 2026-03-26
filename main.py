@@ -89,6 +89,18 @@ def save_orb_aligned_image():
     cropped_image = full_label_image[0:img_h, 0:img_w] 
     cv2.imwrite(str(config.IMAGES_DIR / f"W{template_type}_template.jpg"), cropped_image)
 
+def save_orb_aligned_image_for_all(image_dir: Path, output_dir: Path):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for image_path in image_dir.glob("*.jpg"):
+        full_label_image = cv2.imread(str(image_path))  
+        template_type = "151"
+        template_type, full_label_image = ipf.orb_align(full_label_image, template_type=template_type, n_features=200, max_matches=50, visualize=False)
+
+        _,_,img_w,img_h = config.LABEL_DIMENSIONS[template_type]
+        cropped_image = full_label_image[0:img_h, 0:img_w] 
+        output_image_path = output_dir / f"{image_path.stem}_aligned.jpg"
+        cv2.imwrite(str(output_image_path), cropped_image)
+
 def remove_variable_info_from_template(template_type):
     processor = LabelProcessor()
     results = processor.process_label(str(config.TEMPLATES[template_type]))
@@ -131,4 +143,6 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    save_image_from_scan(config.SCANS_DIR / "151_anomalous.pdf", multipage=True)
+    # save_image_from_scan(config.SCANS_DIR / "151_anomalous.pdf", multipage=True)
+    image_dir = config.BASE_DIR / "anomaly_detection" / "anomalous_data" / "151"
+    save_orb_aligned_image_for_all(image_dir, image_dir / "aligned")

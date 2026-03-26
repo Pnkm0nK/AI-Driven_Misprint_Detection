@@ -1,5 +1,5 @@
 from sklearn.base import BaseEstimator
-from anomaly_detection.ImageDataset import ImageDataset, _collate_no_skip_none
+from anomaly_detection.ImageDataset import ImageDataset, to_pil_rgb, _collate_no_skip_none
 from anomalib.models.image.winclip.torch_model import WinClipModel
 from tqdm import tqdm
 import torch
@@ -9,35 +9,37 @@ import numpy as np
 
 
 class WinClipZeroShotEstimator(BaseEstimator):
-    def __init__(self, batch_size=16, class_name="Spine implant label", threshold=0.5, device="cuda"):
+    def __init__(self, batch_size=16, class_name="Spine implant label", threshold_percentile=0.5, k_shot=10, device="cuda"):
         self.batch_size = batch_size
         self.class_name = class_name
-        self.threshold = threshold
+        self.threshold_percentile = threshold_percentile
+        self.k_shot = k_shot
         self.device = device if(torch.cuda.is_available() and device == "cuda") else "cpu"
+        self._threshold = None
+        self._last_scores_key = None
+        self._last_scores = None
 
-    def _load_winclip(self):
-        self.model = WinClipModel(class_name=self.class_name)
-
-        self.model = self.model.to(self.device)
-        self.model.eval()
         self.img_transform = transforms.Compose([
             # winclip expects 240x240 input
             transforms.Resize((240, 240)),
             transforms.ToTensor()
             ])
 
+    def _load_winclip(self):
+        self.model = WinClipModel(class_name=self.class_name)
 
-    @torch.no_grad()
-    def fit(self, X, y=None):
-        self._load_winclip()
-        self.is_fitted_ = True
-        return self
+        self.model = self.model.to(self.device)
+        self.model.eval()
 
-    @torch.no_grad()
-    def score_samples(self, X):
-        if not hasattr(self, "model") or not hasattr(self, "img_transform"):
-            self._load_winclip()
+    def _cache_key(self, X):
+        return (id(X), len(X))
 
+    def _get_percentile_value(self):
+        if self.threshold_percentile <= 1:
+            return self.threshold_percentile * 100
+        return self.threshold_percentile
+    
+    def _get_scores(self, X):
         total_scores = np.zeros(len(X), dtype=np.float32)
         n_valid = 0
         
@@ -65,22 +67,59 @@ class WinClipZeroShotEstimator(BaseEstimator):
 
         if n_valid == 0:
             raise RuntimeError("No WinClip scores computed; all images failed to load?")
+        return total_scores
 
+    @torch.no_grad()
+    def fit(self, X, y=None):
+        reference_tensor = X[:self.k_shot]
+        reference_tensor = torch.stack([self.img_transform(to_pil_rgb(img)) for img in reference_tensor]).to(self.device)
+        self._load_winclip()
+        print(f"Fitting winclip with {len(reference_tensor)} reference images...")
+        self.model.setup(reference_images=reference_tensor)
+        train_scores = self._get_scores(X)
+        self._threshold = np.percentile(train_scores, self._get_percentile_value())
+        self._last_scores_key = self._cache_key(X)
+        self._last_scores = train_scores
+        print("WinClip setup complete")
+
+        self.is_fitted_ = True
+        return self
+
+    @torch.no_grad()
+    def score_samples(self, X):
+        if not hasattr(self, "model") or not hasattr(self, "img_transform"):
+            self._load_winclip()
+
+        key = self._cache_key(X)
+        if self._last_scores_key == key and self._last_scores is not None:
+            return self._last_scores
+
+        total_scores = self._get_scores(X)
+        self._last_scores_key = key
+        self._last_scores = total_scores
         return total_scores
 
     def predict(self, X):
+        if self._threshold is None:
+            raise ValueError("Estimator has not been fitted yet.")
         scores = self.score_samples(X)
-        return (scores > self.threshold).astype(int)
+        return (scores > self._threshold).astype(int)
 
 class ClipZeroShotEstimator(BaseEstimator):
-    def __init__(self, batch_size=16, model_name="ViT-B-32", pretrained="openai",prompts=None, device="cuda"):
+    def __init__(self, batch_size=16, model_name="ViT-B-32", pretrained="openai",prompts=None, threshold=0.5, device="cuda"):
         self.batch_size = batch_size
         self.model_name = model_name
         self.pretrained = pretrained
         if not prompts:
             prompts = ["normal label of a spine implant, adhering to all standards with no misprints", "anomalous label with misprints, smudges, or other defects that deviate from the normal appearance"]
         self.prompts = prompts
+        self.threshold = threshold
         self.device = device if(torch.cuda.is_available() and device == "cuda") else "cpu"
+        self._last_scores_key = None
+        self._last_scores = None
+
+    def _cache_key(self, X):
+        return (id(X), len(X))
 
     def _load_openclip(self):
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
@@ -93,12 +132,18 @@ class ClipZeroShotEstimator(BaseEstimator):
     def fit(self, X, y=None):
         self._load_openclip()
         self.is_fitted_ = True
+        self._last_scores_key = None
+        self._last_scores = None
         return self
 
     @torch.no_grad()
     def score_samples(self, X):
         if not hasattr(self, "model") or not hasattr(self, "preprocess"):
             self._load_openclip()
+
+        key = self._cache_key(X)
+        if self._last_scores_key == key and self._last_scores is not None:
+            return self._last_scores
         
         text= self.tokenizer(self.prompts)
         text_features = self.model.encode_text(text.to(self.device))
@@ -135,8 +180,11 @@ class ClipZeroShotEstimator(BaseEstimator):
         if n_valid == 0:
             raise RuntimeError("No embeddings computed; all images failed to load?")
 
-        return total_probabilities[:, 1]
+        probabilities = total_probabilities[:, 1]
+        self._last_scores_key = key
+        self._last_scores = probabilities
+        return probabilities
     
     def predict(self, X):
         probabilities = self.score_samples(X)
-        return (probabilities > 0.5).astype(int)
+        return (probabilities > self.threshold).astype(int)

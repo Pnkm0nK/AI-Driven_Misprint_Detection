@@ -2,6 +2,8 @@ import sklearn.mixture as skm
 from anomaly_detection.FeatureExtractors import ClipFeatureExtractor, ORBFeatureExtractor, HogFeatureExtractor, CNNFeatureExtractor
 from anomaly_detection.ClipZeroShotEstimator import ClipZeroShotEstimator, WinClipZeroShotEstimator
 from anomaly_detection.CosKnnAnomalyScorer import CosKnnAnomalyScorer
+from anomaly_detection.AnomalyDetectors import PatchcoreEstimator
+import utilities.config as cfg 
 
 gmm_orb_less_pca_reduction_components = {
     "normalizer__strategy": "orb",
@@ -178,7 +180,31 @@ winclip = {
     "normalizer__downsample_factor": 0.8,
     "normalizer__n_features": 200,
     "normalizer__max_matches": 30,
+    "feature_extractor": "passthrough",
+    "scaler": "passthrough",
+    "dim_reduction": "passthrough",
     "estimator": WinClipZeroShotEstimator(),
     "estimator__batch_size": 16,
-    "estimator__threshold": 0.5,
+    "estimator__threshold_percentile": 90,
+}
+
+patchcore = {
+    "normalizer__strategy": "orb",
+    "normalizer__downsample_factor": 0.5,
+    "normalizer__n_features": 200,
+    "normalizer__max_matches": 30,
+    "feature_extractor": "passthrough",
+    "scaler": "passthrough",
+    "dim_reduction": "passthrough",
+    "estimator": PatchcoreEstimator(),
+    "estimator__checkpoint_path": str(cfg.BASE_DIR / "anomaly_detection" / "experiments" / "patchcore_results" / "Patchcore" / "v0" / "weights" / "lightning" / "model.ckpt"),
+    "estimator__backbone": "wide_resnet50_2",
+    "estimator__layers": ("layer2", "layer3"),
+    "estimator__pre_trained": True,
+    "estimator__coreset_sampling_ratio": 0.01,
+    "estimator__num_neighbors": 9,
+    "estimator__threshold_percentile": 95,
+    "estimator__tile_size": 224,
+    "estimator__batch_size": 16,
+    "estimator__num_workers": 0,
 }

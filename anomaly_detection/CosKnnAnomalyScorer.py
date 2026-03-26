@@ -11,10 +11,18 @@ class CosKnnAnomalyScorer(BaseEstimator):
     where low-score samples are treated as anomalies).
     """
 
-    def __init__(self, n_neighbors=5, use_faiss=False, normalize=True):
+    def __init__(self, n_neighbors=5, threshold_percentile=10, use_faiss=False, normalize=True):
         self.n_neighbors = n_neighbors
+        self.threshold_percentile = threshold_percentile
         self.use_faiss = use_faiss
         self.normalize = normalize
+        self._threshold = None
+        self._last_key = None
+        self._last_scores = None
+
+    def _cache_key(self, X):
+        # create a cache key based on the id and length of data to avoid recomputing scores
+        return (id(X), len(X))
 
     def _l2_normalize(self, X):
         X = np.asarray(X, dtype=np.float32)
@@ -27,6 +35,21 @@ class CosKnnAnomalyScorer(BaseEstimator):
         if self.normalize:
             X = self._l2_normalize(X)
         return X
+    
+    def _calculate_mean_distances(self, X):
+        key = self._cache_key(X)
+        if self._last_key == key and self._last_scores is not None:
+            return self._last_scores
+        Xn = self._prepare_vectors(X)
+        if Xn.ndim != 2:
+            raise ValueError("CosKnnAnomalyScorer.score_samples expects a 2D array.")
+
+        if self._faiss_index is not None:
+            mean_dist = self._faiss_mean_distances(Xn)
+        else:
+            mean_dist = self._sklearn_mean_distances(Xn)
+        return mean_dist
+
 
     def fit(self, X, y=None):
         X = self._prepare_vectors(X)
@@ -54,6 +77,10 @@ class CosKnnAnomalyScorer(BaseEstimator):
         if self._faiss_index is None:
             self._nn = NearestNeighbors(n_neighbors=self._effective_k, metric="cosine")
             self._nn.fit(X)
+        
+        mean_dist = self._calculate_mean_distances(X)
+
+        self._threshold = np.percentile(mean_dist, self.threshold_percentile)
 
         self.is_fitted_ = True
 
@@ -74,15 +101,11 @@ class CosKnnAnomalyScorer(BaseEstimator):
     def score_samples(self, X):
         if not hasattr(self, "is_fitted_"):
             raise RuntimeError("CosKnnAnomalyScorer must be fitted before calling score_samples.")
+        
+        mean_dist = self._calculate_mean_distances(X)
 
-        Xn = self._prepare_vectors(X)
-        if Xn.ndim != 2:
-            raise ValueError("CosKnnAnomalyScorer.score_samples expects a 2D array.")
-
-        if self._faiss_index is not None:
-            mean_dist = self._faiss_mean_distances(Xn)
-        else:
-            mean_dist = self._sklearn_mean_distances(Xn)
-
-        # Convert distance to normality score: lower distance -> higher score.
-        return -mean_dist
+        return mean_dist
+    
+    def predict(self, X):
+        scores = self.score_samples(X)
+        return (scores > self._threshold).astype(int)
