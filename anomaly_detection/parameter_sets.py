@@ -2,23 +2,8 @@ import sklearn.mixture as skm
 from anomaly_detection.FeatureExtractors import ClipFeatureExtractor, ORBFeatureExtractor, HogFeatureExtractor, CNNFeatureExtractor
 from anomaly_detection.ClipZeroShotEstimator import ClipZeroShotEstimator, WinClipZeroShotEstimator
 from anomaly_detection.CosKnnAnomalyScorer import CosKnnAnomalyScorer
-from anomaly_detection.AnomalyDetectors import PatchcoreEstimator
+from anomaly_detection.AnomalyDetectors import PatchcoreEstimator, DinomalyEstimator
 import utilities.config as cfg 
-
-gmm_orb_less_pca_reduction_components = {
-    "normalizer__strategy": "orb",
-    "normalizer__n_features": 150,
-    "feature_extractor": ORBFeatureExtractor(),
-    "feature_extractor__n_features": 250,
-    "dim_reduction__n_components": 15,
-    "dim_reduction__svd_solver": "full",
-    "estimator": skm.GaussianMixture(),
-    "estimator__n_components": 1,
-    "estimator__covariance_type": "diag",
-    "estimator__reg_covar": 1e-4,
-    "estimator__n_init": 3,
-    "estimator__max_iter": 300
-}
 
 gmm_orb_pca = {
     "normalizer__strategy": "orb",
@@ -207,4 +192,26 @@ patchcore = {
     "estimator__tile_size": 224,
     "estimator__batch_size": 16,
     "estimator__num_workers": 0,
+}
+
+dinomaly = {
+    "normalizer__strategy": "orb",
+    "normalizer__downsample_factor": 0.5,
+    "normalizer__n_features": 200,
+    "normalizer__max_matches": 30,
+    "feature_extractor": "passthrough",
+    "scaler": "passthrough",
+    "dim_reduction": "passthrough",
+    "estimator": DinomalyEstimator(),
+    "estimator__default_root_dir": str(cfg.BASE_DIR / "anomaly_detection" / "experiments"),
+    "estimator__encoder_name": "dinov2reg_vit_base_14",
+    "estimator__bottleneck_dropout": 0.2,
+    "estimator__decoder_depth": 8,
+    "estimator__remove_class_token": False,
+    "estimator__threshold_percentile": 95,
+    "estimator__batch_size": 8,
+    "estimator__num_workers": 0,
+    "estimator__random_state": 20,
+    "estimator__batch_size": 16,
+    "estimator__num_workers": 0
 }

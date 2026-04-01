@@ -1,6 +1,5 @@
 import cv2
 from pathlib import Path
-import sklearn.mixture as skm
 import sklearn as skl
 import numpy as np
 import mlflow
@@ -55,7 +54,7 @@ def run_pipeline(pipeline_parameters,
     mlflow.set_experiment(experiment_name)
 
     train_pipeline = skl.pipeline.Pipeline(steps=[
-        ("normalizer", LabelNormalizer()),
+        ("normalizer", LabelNormalizer(template_type=label_type)),
         ("feature_extractor", HogFeatureExtractor()),
         ("scaler", skl.preprocessing.StandardScaler()),
         ("dim_reduction", skl.decomposition.PCA(random_state=seed, whiten=True)),
@@ -158,7 +157,7 @@ def run_pipeline(pipeline_parameters,
 if __name__ == "__main__":
 
     experiment_name = "feature-anomaly-detection"
-    run_name = "patchcore"
-    parameters = param_sets.patchcore
+    run_name = "dinomaly"
+    parameters = param_sets.dinomaly
 
     run_pipeline(pipeline_parameters=parameters, experiment_name=experiment_name, run_name=run_name)
