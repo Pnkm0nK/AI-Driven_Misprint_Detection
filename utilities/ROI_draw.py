@@ -145,7 +145,6 @@ def edit_rois_in_labelme(
     return updated
 
 def annotate_template_rois(template_type: str):
-    template_type = "146"
     image_path = config.TEMPLATES[template_type]
 
     template_image = cv2.imread(str(image_path))
@@ -167,10 +166,3 @@ def annotate_label_types(data_folder_path, output_path):
                     "--output", str(output_path),
                     "--nodata"],
                       check=True)
-
-
-
-
-if __name__ == "__main__":
-    # annotate_template_rois("146")
-    annotate_label_types(config.IMAGES_DIR, config.ANNOTATIONS_DIR)

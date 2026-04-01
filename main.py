@@ -8,6 +8,7 @@ from modules.ImageProcessor import ImageProcessor
 import modules.image_processing_functions as ipf
 from modules.ResultStorage import ResultStorage
 from utilities.data_parser import parse_data_from_loftware
+from utilities.ROI_draw import annotate_template_rois, annotate_label_types
 import utilities.utils as utils
 
 
@@ -20,6 +21,24 @@ def main():
     results.display_text_region_images()
     results = ResultStorage(results, gt_path)
     results.generate_summary(f"W151_many_1_result_retrain", str(config.RESULTS_DIR))
+
+def test_augmentation(img_path):
+    image = cv2.imread(str(img_path))
+    augmented_image = ipf.add_binary_simplex_window(image, color=(255, 255, 255), threshold=0.7, scale=0.01)
+    augmented_image = ipf.add_binary_simplex_window(augmented_image, color=(5, 10, 5),threshold=0.7, scale=0.04)
+    augmented_image = ipf.add_motion_blur(augmented_image, (40, 20), (700, 80), kernel_size=7)
+    augmented_image = ipf.add_streaks(augmented_image, num_streaks=3, color=(0, 0, 0), thickness=4)
+    cv2.imshow("Simplex smudged Image", augmented_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+def check_regions(img_folder):
+    processor = LabelProcessor()
+    for img_path in os.listdir(img_folder):
+        if img_path.endswith(".jpg") or img_path.endswith(".png"):
+            img_path = os.path.join(img_folder, img_path)
+            results = processor.process_label(str(img_path))
+            results.display_text_region_images()
 
 def generate_train_data(template_type):
     image_dir = config.IMAGES_DIR / template_type
@@ -53,8 +72,8 @@ def perform_symbol_image_differencing(querry_image_path):
     symbol_rois = results.roi_coordinates["symbol_regions"]
     for roi_name, coords in symbol_rois.items():
         querry_crop = results._symbol_images[roi_name]
-        template_crop = image_processor.extract_roi(template_image, coords )
-        diff = image_processor.calculate_image_difference(template_crop, querry_crop)
+        template_crop = ipf.extract_roi(template_image, coords )
+        diff = ipf.calculate_image_difference(template_crop, querry_crop)
         print(f"Difference for {roi_name}: {diff}")
 
 def save_image_from_scan(label_scan_path, multipage=False):
@@ -143,6 +162,7 @@ def transfer_roi_coordinates():
 
 
 if __name__ == "__main__":
-    # save_image_from_scan(config.SCANS_DIR / "151_anomalous.pdf", multipage=True)
-    image_dir = config.BASE_DIR / "anomaly_detection" / "anomalous_data" / "151"
-    save_orb_aligned_image_for_all(image_dir, image_dir / "aligned")
+    # annotate_template_rois("146")
+    image_folder = config.BASE_DIR / "anomaly_detection" / "train_data" / "151"/"01SL.jpg"
+    # image_folder = config.IMAGES_DIR / "151" / "loftware" / "01SL.jpg"
+    test_augmentation(image_folder)

@@ -1,6 +1,6 @@
 {
     "lot": "--oem 1 --psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHJKLMNPQRSTUVWXYZ -c load_system_dawg=0 -c load_freq_dawg=0 -c textord_disable_skew=1 -l ocr_script",
-    "ref": "--oem 1 --psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHJKLMNPQRSTUVWXYZ -c load_system_dawg=0 -c load_freq_dawg=0 -c textord_disable_skew=1 -l ocr_script",
+    "ref": "--oem 1 --psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ -c load_system_dawg=0 -c load_freq_dawg=0 -c textord_disable_skew=1 -l ocr_script",
     "size": "--oem 3 --psm 6 -c tessedit_char_blacklist=(){}[] -c load_system_dawg=0 -c load_freq_dawg=0 -c textord_disable_skew=1",
     "subscript": "--oem 1 --psm 6 -c tessedit_char_whitelist=0123456789()ABCDEFGHJKLMNPQRSTUVWXYZ -c load_system_dawg=0 -c load_freq_dawg=0 -c textord_disable_skew=1 -l ocr_script",
     "date": "--oem 1 --psm 8 -c tessedit_char_whitelist=0123456789- -c load_system_dawg=0 -c load_freq_dawg=0 -c textord_disable_skew=1 -l ocr_script",
