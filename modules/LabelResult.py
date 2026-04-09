@@ -8,10 +8,12 @@ class LabelResult:
                  roi_coordinates: ROICollection,
                  region_texts: dict[str,str],
                  region_barcodes: dict[str,str],
+                 is_anomaly: bool,
                  text_region_images: dict[str,np.ndarray],
                  barcode_images: dict[str,np.ndarray],
-                 symbol_images: dict[str,np.ndarray],
-                 aligned_image: np.ndarray, run_times: dict[str, float] | None = None):
+                 aligned_image: np.ndarray,
+                 symbol_images: dict[str,np.ndarray] | None = None,
+                 run_times: dict[str, float] | None = None):
         '''
         Docstring for __init__
 
@@ -23,6 +25,8 @@ class LabelResult:
         :type region_texts: dict[str, str]
         :param region_barcodes: Dictionary mapping each barcode region name to its extracted barcode value.
         :type region_barcodes: dict[str, str]
+        :param is_anomaly: Boolean indicating whether an anomaly was detected.
+        :type is_anomaly: bool
         :param text_region_images: Dictionary mapping each text region name to its image.
         :type text_region_images: dict[str, np.ndarray]
         :param barcode_images: Dictionary mapping each barcode region name to its image.
@@ -35,6 +39,7 @@ class LabelResult:
         self.template_type = template_type
         self.region_texts = region_texts
         self.region_barcodes = region_barcodes
+        self.is_anomaly = is_anomaly
         self.aligned_image = aligned_image
         self.roi_coordinates = roi_coordinates
         self._text_region_images = text_region_images

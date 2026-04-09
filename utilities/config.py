@@ -9,8 +9,15 @@ RESULTS_DIR  = BASE_DIR / "results"
 TEMPLATE_DIR = BASE_DIR / "templates"
 ANNOTATIONS_DIR = BASE_DIR / "label_type_annotations"
 SCANS_DIR    = BASE_DIR.parent / "label_scans"
+MODEL_DIR     = BASE_DIR / "models"
 
-TESSERACT_CFG = BASE_DIR / "tesseract_config.json"
+ANOMALY_DETECTION_MODEL_NAME = "patchcore_ad.pkl"
+ANOMALY_DETECTION_MODEL_PATH = MODEL_DIR / ANOMALY_DETECTION_MODEL_NAME
+
+LABEL_CLASSIFIER_MODEL_NAME = "yolo_label_classifier.pt"
+LABEL_CLASSIFIER_MODEL_PATH = MODEL_DIR / LABEL_CLASSIFIER_MODEL_NAME
+
+TESSERACT_CFG = BASE_DIR / "utilities" /"tesseract_config.json"
 
 GT_FILES = {
     "151": GT_DIR / "label_151_gt.json",

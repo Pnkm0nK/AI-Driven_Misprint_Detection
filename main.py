@@ -1,4 +1,5 @@
 import utilities.config as config
+import time
 import os
 import cv2
 from pathlib import Path
@@ -6,7 +7,7 @@ from modules.LabelProcessor import LabelProcessor
 from modules.PDFConverter import PDFConverter
 from modules.ImageProcessor import ImageProcessor
 import modules.image_processing_functions as ipf
-from modules.ResultStorage import ResultStorage
+from modules.ResultPostprocessor import ResultPostprocessor
 from utilities.data_parser import parse_data_from_loftware
 from utilities.ROI_draw import annotate_template_rois, annotate_label_types
 import utilities.utils as utils
@@ -18,9 +19,9 @@ def main():
     gt_path = config.GT_DIR / gt_name
     processor = LabelProcessor()
     results = processor.process_label(str(config.IMAGES_DIR /"151" / image_name))
-    results.display_text_region_images()
-    results = ResultStorage(results, gt_path)
-    results.generate_summary(f"W151_many_1_result_retrain", str(config.RESULTS_DIR))
+    results = ResultPostprocessor(results, gt_path)
+    results.show_highlighted_mismatches()
+    results.generate_summary(f"W151_many_1_e2e_tesserocr", str(config.RESULTS_DIR))
 
 def test_augmentation(img_path):
     image = cv2.imread(str(img_path))
@@ -31,6 +32,14 @@ def test_augmentation(img_path):
     cv2.imshow("Simplex smudged Image", augmented_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+def augment_images(image_dir, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for image_path in Path(image_dir).glob("*.jpg"):
+        image = cv2.imread(str(image_path))
+        image = ipf.apply_random_augmentation(image)
+        output_path = Path(output_dir) / image_path.name
+        cv2.imwrite(str(output_path), image)
 
 def check_regions(img_folder):
     processor = LabelProcessor()
@@ -56,9 +65,10 @@ def remove_markup_from_images(image_folder, output_folder):
             image_path = os.path.join(image_folder, file)
             image = cv2.imread(image_path)
             cleaned_image = utils.remove_markup_from_image(image)
+            if file.endswith(".png"):
+                file = file.replace(".png", ".jpg")
             output_path = os.path.join(output_folder, file)
             # write as jpg
-            output_path = output_path.replace(".png", ".jpg")
             cv2.imwrite(output_path, cleaned_image)
 
 def perform_symbol_image_differencing(querry_image_path):
@@ -137,6 +147,18 @@ def denormalize_coords_for_full_label():
     img =cv2.imread(str(config.IMAGES_DIR / image_name))
     h, w = img.shape[:2]
 
+def find_not_included_files_in_folder(folder1, folder2, output_folder):
+    files_in_folder1 = [os.path.splitext(f)[0] for f in os.listdir(folder1)]
+    files_in_folder2 = [os.path.splitext(f)[0] for f in os.listdir(folder2)]
+    not_included_files = set(files_in_folder1) - set(files_in_folder2)
+    os.makedirs(output_folder, exist_ok=True)
+    for file in not_included_files:
+        file_path = os.path.join(folder1, file + ".png")
+        if os.path.exists(file_path):
+            output_path = os.path.join(output_folder, file + ".png")
+            cv2.imwrite(output_path, cv2.imread(file_path))
+    print(f"Files in {folder1} not in {folder2}: {not_included_files}")
+
 def test_image_differencing():
     clean_image = cv2.imread(str(config.TEMPLATE_DIR / "151_cleaned.jpg"))
     querry_image = cv2.imread(str(config.IMAGES_DIR / "151_cleaned.jpg"))
@@ -160,9 +182,29 @@ def transfer_roi_coordinates():
         normed[category] = storage.normalize_roi_coordinates(roi, new_w, new_h)
     open(config.ROI_DIR / "label_151_rois_transfered.json", 'w').write(json.dumps(normed, indent=4))
 
+def perform_batch_label_analysis():
+    processor = LabelProcessor()
+    cnt = 0
+    total_anomalies = 0
+    start_time = time.time()
+    for image_path in (config.IMAGES_DIR / "151" / "train_augmented").glob("*.jpg"):
+        results = processor.process_label(str(image_path))
+        total_anomalies += int(results.is_anomaly)
+        cnt += 1
+    end_time = time.time()
+    print(f"Total images: {cnt}, Total anomalies detected: {total_anomalies}")
+    print(f"Processing time: {end_time - start_time:.2f} seconds")
 
 if __name__ == "__main__":
+    # find_not_included_files_in_folder(config.BASE_DIR / "parsed_data" / "151", 
+    #                                     config.IMAGES_DIR / "151" / "loftware", 
+    #                                     config.IMAGES_DIR / "151" / "not_included"
+    #                                 )
     # annotate_template_rois("146")
-    image_folder = config.BASE_DIR / "anomaly_detection" / "train_data" / "151"/"01SL.jpg"
-    # image_folder = config.IMAGES_DIR / "151" / "loftware" / "01SL.jpg"
-    test_augmentation(image_folder)
+    # image_folder = config.BASE_DIR / "anomaly_detection" / "train_data" / "151"/"01SL.jpg"
+    # image_folder = config.IMAGES_DIR / "151" / "loftware" / "01SL.png"
+    # test_augmentation(image_folder)
+    # parse_data_from_loftware(30)
+    # remove_markup_from_images(config.IMAGES_DIR / "151" / "not_included", config.IMAGES_DIR / "151" / "test")
+    # augment_images(config.IMAGES_DIR / "151" / "test", config.IMAGES_DIR / "151" / "train_augmented")
+    perform_batch_label_analysis()
