@@ -2,6 +2,8 @@ import os
 
 import cv2
 import subprocess
+import shutil
+import sys
 from pathlib import Path
 from modules.ROIStorage import ROIStorage, ROICollection
 import json
@@ -11,6 +13,15 @@ import utilities.config as config
 Script for creating and editing ROIS using labelme lib
 Provides conversion to and from labelme JSON format
 '''
+
+
+def _get_labelme_command() -> list[str]:
+    '''
+    Resolve a working labelme command, in case labelme is not on the PATH
+    '''
+    if shutil.which("labelme"):
+        return ["labelme"]
+    return [sys.executable, "-m", "labelme"]
 
 def roi_collection_to_labelme(
     roi_collection: ROICollection,
@@ -122,7 +133,7 @@ def edit_rois_in_labelme(
     '''
     image_path = Path(image_path)
 
-    # temporary labelme JSON 
+    # temporary labelme JSON
     labelme_json_path = image_path.with_suffix(".json")
 
     save_labelme_json(roi_collection, image_path, img_w, img_h, labelme_json_path)
@@ -130,17 +141,24 @@ def edit_rois_in_labelme(
     print(f"Launching labelme for {image_path.name} …")
     print("Save and close labelme when done")
 
-    subprocess.run(["labelme", str(image_path),
-                    "--labels", str(config.ROI_DIR / "labels.csv"),
-                    "--nodata"],
-                      check=True)
+    labelme_command = _get_labelme_command()
+    subprocess.run(
+        [
+            *labelme_command,
+            str(image_path),
+            "--labels",
+            str(config.ROI_DIR / "labels.csv"),
+            "--nodata",
+        ],
+        check=True,
+    )
 
     if not labelme_json_path.exists():
         print("No labelme JSON found after editing – returning original ROIs.")
         return roi_collection
 
     updated = labelme_to_roi(labelme_json_path)
-    os.remove(labelme_json_path)  # clean up temporary JSON file  
+    os.remove(labelme_json_path)  # clean up temporary JSON file
     print(f"Loaded {sum(len(v) for v in updated.values())} ROIs from labelme.")
     return updated
 
@@ -162,7 +180,8 @@ def annotate_template_rois(template_type: str):
     roi_storage.save_roi_json_data(updated_rois)
 
 def annotate_label_types(data_folder_path, output_path):
-    subprocess.run(["labelme", str(data_folder_path),
+    labelme_command = _get_labelme_command()
+    subprocess.run([*labelme_command, str(data_folder_path),
                     "--output", str(output_path),
                     "--nodata"],
                       check=True)
