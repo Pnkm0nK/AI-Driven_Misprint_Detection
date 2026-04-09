@@ -32,14 +32,14 @@ class ResultPostprocessor:
         self.metrics: dict[str, str] = {}
         self.summary_text: str = f"Label {results.template_type} Summary"
 
+        if not self.gt_texts and not self.gt_barcodes:
+            print("No ground truth data available. Cannot conclude defect status.")
+            return
         self.conclude_defect_status()
         
 
     
     def conclude_defect_status(self):
-        if not self.gt_texts and not self.gt_barcodes:
-            print("No ground truth data available. Cannot conclude defect status.")
-            return
         if not "false_barcode_readings_n" in self.metrics:
             self.add_barcode_reading_accuracy_metric()
         
@@ -97,7 +97,8 @@ class ResultPostprocessor:
         with open(output_txt_path, 'w', encoding='utf-8') as f:
             f.write(self.summary_text)
 
-    def save_extracted_texts_to_json(self, output_json_path: str):
+    def save_extracted_texts_to_json(self, output_json_path: str) -> None:
+        '''Saves the extracted texts and barcodes to a JSON file for further analysis or record-keeping'''
         extracted_data = {}
         extracted_data["text_regions"]= self.extracted_texts
         extracted_data["barcode_regions"] = self.extracted_barcodes if self.extracted_barcodes else {}
@@ -203,15 +204,20 @@ class ResultPostprocessor:
             self.conclude_defect_status()
         self.summary_text += f"\n\nCONCLUSION:\n{self.conclusion_text}"
 
-    def generate_summary(self, summary_name: str, output_dir: str, verbose: bool = True, json_output: bool = True):
+    def generate_summary(self, summary_name: str, output_dir: str|None=None, verbose: bool = True, json_output: bool = True):
+        '''
+        Generates a summary of the results, including metrics and extracted texts, and saves it to a text file if output_dir is provided. Optionally saves extracted texts to a JSON file and includes detailed mismatch information in the summary if verbose is True
+        '''
         print(f"Generating summary for {summary_name}...")
         self.add_cer_metric()
         self.add_barcode_reading_accuracy_metric()
         self.add_metric_info_to_summary()
+        self.add_conclusion_to_summary()
         if verbose:
             self.add_text_mismatches_to_summary()
             self.add_run_times_to_summary()
-        self.save_summary_to_txt(output_txt_path=f"{output_dir}/{summary_name}.txt")
-        if json_output:
+        if output_dir:
+            self.save_summary_to_txt(output_txt_path=f"{output_dir}/{summary_name}.txt")
+        if json_output and output_dir:
             self.save_extracted_texts_to_json(output_json_path=f"{output_dir}/{summary_name}.json")
     
