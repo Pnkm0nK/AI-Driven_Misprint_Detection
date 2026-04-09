@@ -24,17 +24,17 @@ def _serialize_params_for_logging(params):
     return serialized
 
 
-def load_label_dataset(label_type, test_size=0.1, seed=20):
+def load_label_dataset(label_type):
     base_dir = Path(__file__).parent.resolve()
     data_path = base_dir /"anomaly_detection" / "train_data" / label_type
-
+    test_data_path = base_dir / "anomaly_detection" / "test" / label_type
     anomalous_data_path = base_dir / "anomaly_detection" / "anomalous_data" / label_type
-    images = [cv2.imread(str(img), cv2.IMREAD_GRAYSCALE) for img in data_path.glob("*.jpg")]
-    print(f"Loaded {len(images)} normal images from {data_path}")
+    train_images = [cv2.imread(str(img), cv2.IMREAD_GRAYSCALE) for img in data_path.glob("*.jpg")]
+    print(f"Loaded {len(train_images)} normal images from {data_path} for training")
+    test_normal = [cv2.imread(str(img), cv2.IMREAD_GRAYSCALE) for img in test_data_path.glob("*.jpg")]
     test_anomaly = [cv2.imread(str(img), cv2.IMREAD_GRAYSCALE) for img in anomalous_data_path.glob("*.jpg")]
 
-    train, test_normal = skl.model_selection.train_test_split(images, test_size=test_size, random_state=seed)
-    return train, test_normal, test_anomaly
+    return train_images, test_normal, test_anomaly
 
 
 def run_pipeline(pipeline_parameters,
@@ -49,7 +49,7 @@ def run_pipeline(pipeline_parameters,
 
     threshold_percentile = pipeline_parameters.get("estimator__threshold_percentile", 10)
 
-    train, test_normal, test_anomaly = load_label_dataset(label_type=label_type, seed=seed)
+    train, test_normal, test_anomaly = load_label_dataset(label_type=label_type)
 
     mlflow.set_experiment(experiment_name)
 
@@ -157,7 +157,7 @@ def run_pipeline(pipeline_parameters,
 if __name__ == "__main__":
 
     experiment_name = "feature-anomaly-detection"
-    run_name = "dinomaly"
-    parameters = param_sets.dinomaly
+    run_name = "try_cosknn"
+    parameters = param_sets.resnet18_cos_knn
 
     run_pipeline(pipeline_parameters=parameters, experiment_name=experiment_name, run_name=run_name)

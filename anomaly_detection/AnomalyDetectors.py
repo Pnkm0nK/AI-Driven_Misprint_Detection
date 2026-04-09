@@ -15,8 +15,10 @@ from abc import ABC, abstractmethod
 from anomalib.models import Patchcore, Dinomaly
 from anomalib.engine import Engine
 from anomalib.callbacks import TilerConfigurationCallback
-
+import utilities.config as cfg
 from lightning.pytorch import LightningDataModule
+
+ROOT_DIR = cfg.BASE_DIR / "anomaly_detection"/ "experiments"
 
 class CustomDataModule(LightningDataModule):
     def __init__(
@@ -76,7 +78,7 @@ class AnomalibEstimator(BaseEstimator, ABC):
         batch_size=8,
         num_workers=0,
         random_state=20,
-        default_root_dir=None,
+        default_root_dir=ROOT_DIR,
         max_epochs=20,
     ):
         self.checkpoint_path = checkpoint_path
@@ -266,7 +268,7 @@ class PatchcoreEstimator(AnomalibEstimator):
         batch_size=8,
         num_workers=0,
         random_state=20,
-        default_root_dir=None,
+        default_root_dir=ROOT_DIR,
     ):
         super().__init__(
             checkpoint_path=checkpoint_path,
@@ -296,7 +298,7 @@ class PatchcoreEstimator(AnomalibEstimator):
             )
     
     def _build_callbacks(self):
-        return [TilerConfigurationCallback(tile_size=self.tile_size)]
+        return [TilerConfigurationCallback(enable=True,tile_size=self.tile_size, stride=self.tile_size//2)]
 
 
 class DinomalyEstimator(AnomalibEstimator):
@@ -312,7 +314,7 @@ class DinomalyEstimator(AnomalibEstimator):
         batch_size=8,
         num_workers=0,
         random_state=20,
-        default_root_dir=None,
+        default_root_dir=ROOT_DIR,
     ):
         super().__init__(
             checkpoint_path=checkpoint_path,

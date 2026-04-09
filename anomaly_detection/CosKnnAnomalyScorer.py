@@ -11,7 +11,7 @@ class CosKnnAnomalyScorer(BaseEstimator):
     where low-score samples are treated as anomalies).
     """
 
-    def __init__(self, n_neighbors=5, threshold_percentile=10, use_faiss=False, normalize=True):
+    def __init__(self, n_neighbors=5, threshold_percentile=97, use_faiss=False, normalize=True):
         self.n_neighbors = n_neighbors
         self.threshold_percentile = threshold_percentile
         self.use_faiss = use_faiss
