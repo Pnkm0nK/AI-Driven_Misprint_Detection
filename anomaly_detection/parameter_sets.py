@@ -6,6 +6,7 @@ from anomaly_detection.FeatureExtractors import ClipFeatureExtractor, ORBVladGri
 from anomaly_detection.ClipZeroShotEstimator import ClipZeroShotEstimator, WinClipZeroShotEstimator
 from anomaly_detection.CosKnnAnomalyScorer import CosKnnAnomalyScorer
 from anomaly_detection.AnomalyDetectors import PatchcoreEstimator, DinomalyEstimator
+from anomaly_detection.AnomalyDino import AnomalyDinoEstimator
 import utilities.config as cfg 
 
 gmm_orb_pca = {
@@ -348,6 +349,18 @@ patchcore_dino["estimator__layers"] = ["blocks.8", "blocks.11"]
 
 dinomaly_no_cls_token = dinomaly.copy()
 dinomaly_no_cls_token["estimator__remove_class_token"] = True
+
+anomalydino = {
+    "normalizer__strategy": "orb",
+    "normalizer__downsample_factor": 0.8,
+    "normalizer__n_features": 250,
+    "normalizer__max_matches": 50,
+    "feature_extractor": "passthrough",
+    "scaler": "passthrough",
+    "dim_reduction": "passthrough",
+    "estimator": AnomalyDinoEstimator(),
+    "estimator__threshold_percentile": 97,
+}
 
 
 parameter_set_collection = {
