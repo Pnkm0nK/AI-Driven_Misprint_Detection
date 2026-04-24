@@ -8,7 +8,7 @@ import json
 
 class ResultPostprocessor:
     def __init__(self, results: LabelResult, gt_file_path: str = None):
-        self.extracted_texts: dict[str, str] = {k: v.lower() for k, v in results.get_extracted_texts().items()}
+        self.extracted_texts: dict[str, str] = results.get_extracted_texts()
         self.extracted_barcodes: dict[str, str] = results.get_extracted_barcodes()
         self.roi_coordinates = results.roi_coordinates
         self.text_distance_threshold = 2
@@ -105,13 +105,13 @@ class ResultPostprocessor:
         with open(output_json_path, 'w', encoding='utf-8') as f:
             json.dump(extracted_data, f, indent=4, ensure_ascii=False)
     
-    def add_cer_metric(self):
+    def add_cer_metric(self) -> float:
         if not self.extracted_texts:
             print("No extracted texts to evaluate.")
-            return
+            return 0.0 
         if not self.gt_texts:
             print("Ground truth texts not provided. Cannot calculate CER.")
-            return
+            return 0.0
         pred_texts = []
         gt_texts = []  
         for roi_name, gt_text in self.gt_texts.items():
@@ -120,7 +120,7 @@ class ResultPostprocessor:
         result = calculate_character_error_rate(pred_texts=pred_texts, gt_texts=gt_texts)
         formatted_result = f"{result*100:.1f}%"
         self.metrics['cer'] = formatted_result 
-        return
+        return result 
     
     def add_barcode_reading_accuracy_metric(self):
         if not self.extracted_barcodes:

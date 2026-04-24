@@ -1,16 +1,15 @@
 import cv2
-import json
 import joblib
 import numpy as np
 import os
 import dotenv
+from typing import Optional
 import sklearn
 from ultralytics import YOLO
 import zxingcpp as zxing
 import tesserocr
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from PIL import Image
 import time
 
 from modules.PDFConverter import PDFConverter
@@ -21,6 +20,19 @@ import modules.image_processing_functions as ipf
 from utilities.custom_types import ROICollection
 from utilities.tesserocr_config import tesserocr_config
 import utilities.config as config
+
+class PipelineState:
+    def __init__(self):
+        self.image: Optional[np.ndarray] = None
+        self.aligned_image: Optional[np.ndarray] = None
+        self.template_type: str = None
+        self.roi_coordinates: dict = {}
+        self.text_region_images: dict = {}
+        self.barcode_images: dict = {}
+        self.region_texts: dict = {}
+        self.region_barcodes: dict = {}
+        self.is_anomaly: Optional[bool] = None
+        self.run_times: dict = {}
 
 class LabelProcessor:
     '''
@@ -40,13 +52,17 @@ class LabelProcessor:
         self.tessdata_dir = os.getenv("TESSDATA_DIR")
         self.tesserocr_config = tesserocr_config
         self.thread_local = threading.local()
+        self.state: Optional[PipelineState] = None
         
-        self.image_processor = ImageProcessor()
         self.label_classifier = YOLO(config.LABEL_CLASSIFIER_MODEL_PATH)
         self.anomaly_detection_model = self._load_anomaly_detection_model(config.ANOMALY_DETECTION_MODEL_PATH)
-        self.run_times = {}
     
-    def process_label(self, scan: str | np.ndarray, template_type: str = None) -> LabelResult:
+    def process_label(self, scan: str | np.ndarray,
+                      template_type: str = None,
+                      run_ocr: bool = True,
+                      run_anomaly_detection: bool = True,
+                      postprocess_text: bool = True,
+                      ocr_workers: int = 8) -> LabelResult:
         '''
         Performs the full processing pipeline of a label scan. This includes:
         1. using ORB to align the label scan to a template and classify it to a template type. 
@@ -60,71 +76,90 @@ class LabelProcessor:
         :return: Returns LabelResult object containing all extracted information and images from the label.
         :rtype: LabelResult
         '''
+        state = PipelineState()
+        self.state = state
+
         # get image from scan(pdf or image file)
         start_time = time.time()
-        self.full_label_image = self._handle_scan_file(scan)
-        self.run_times["Image loading"] = time.time() - start_time
+        state.image = self._handle_scan_file(scan)
+        state.run_times["Image loading"] = time.time() - start_time
 
         # use orb to align the image and classify it to a template type. This will help us select the suitable image processor and ROIs for the label.
         if template_type is None:
             start_time = time.time()
-            classifier_results = self.label_classifier(self.full_label_image)
+            classifier_results = self.label_classifier(state.image)
             most_probable_class = classifier_results[0].probs.top1
             template_type = classifier_results[0].names[most_probable_class]
-            self.run_times["YOLO classification"] = time.time() - start_time
+            state.run_times["YOLO classification"] = time.time() - start_time
+
+        state.template_type = template_type
 
         start_time = time.time()
-        self.full_label_image =ipf.orb_align(self.full_label_image, template_type, n_features=250, max_matches=50)
-        self.run_times["ORB alignment"] = time.time() - start_time
+        state.aligned_image = ipf.orb_align(state.image, state.template_type, n_features=250, max_matches=50)
+        state.run_times["ORB alignment"] = time.time() - start_time
 
         # specialize image processor to the template
-        self.image_processor = self.image_processor.get_suitable_image_processor(template_type)
+        image_processor = ImageProcessor.get_suitable_image_processor(state.template_type)
 
         start_time = time.time()
-        roi_storage = ROIStorage(img_h=self.full_label_image.shape[0],
-                                      img_w=self.full_label_image.shape[1],
-                                      template_type=template_type)
-        roi_coordinates = roi_storage.load_roi_json_data()
-        self.run_times["ROI loading"] = time.time() - start_time
+        roi_storage = ROIStorage(img_h=state.aligned_image.shape[0],
+                                 img_w=state.aligned_image.shape[1],
+                                 template_type=state.template_type)
+        state.roi_coordinates = roi_storage.load_roi_json_data()
+        state.run_times["ROI loading"] = time.time() - start_time
 
         start_time = time.time()
-        self.text_region_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["text_regions"])
-        self.run_times["Text region extraction"] = time.time() - start_time
+        state.text_region_images = self._extract_preprocessed_region_images(
+            state.aligned_image,
+            state.roi_coordinates["text_regions"],
+            image_processor,
+        )
+        state.run_times["Text region extraction"] = time.time() - start_time
+        
+        if run_ocr:
+            start_time = time.time()
+            state.region_texts = self._extract_all_region_text_parallel(
+                state.text_region_images,
+                postprocess=postprocess_text,
+                max_workers=ocr_workers,
+            )
+            state.run_times["OCR text extraction"] = time.time() - start_time
+
+        start_time = time.time()
+        state.barcode_images = self._extract_preprocessed_region_images(
+            state.aligned_image,
+            state.roi_coordinates["barcode_regions"],
+            image_processor,
+        )
+        state.run_times["Barcode region extraction"] = time.time() - start_time
         
         start_time = time.time()
-        region_texts: dict[str, str] = self._extract_all_region_text_parallel()
-        self.run_times["OCR text extraction"] = time.time() - start_time
+        state.region_barcodes = self._extract_all_barcodes(state.barcode_images)
+        state.run_times["Barcode reading"] = time.time() - start_time
 
-        start_time = time.time()
-        self.barcode_images: dict[str, np.ndarray] = self._extract_preprocessed_region_images(roi_coordinates["barcode_regions"])
-        self.run_times["Barcode region extraction"] = time.time() - start_time
-        
-        start_time = time.time()
-        region_barcodes: dict[str, str] = self._extract_all_barcodes()
-        self.run_times["Barcode reading"] = time.time() - start_time
-
-        start_time = time.time()
-        normalized_image = ipf.convert_to_greyscale(self.full_label_image)
-        is_anomaly: np.ndarray = self._perform_anomaly_detection(np.array([normalized_image]), binary=True)
-        is_anomaly = bool(is_anomaly[0])
-        self.run_times["Anomaly detection"] = time.time() - start_time
+        if run_anomaly_detection:
+            start_time = time.time()
+            normalized_image = ipf.convert_to_greyscale(state.aligned_image)
+            is_anomaly: np.ndarray = self._perform_anomaly_detection(np.array([normalized_image]), binary=True)
+            state.is_anomaly = bool(is_anomaly[0])
+            state.run_times["Anomaly detection"] = time.time() - start_time
 
         # do not apply preprocessing to symbol regions, as here preprocessing is
         # specialized for differencing
         # start_time = time.time()
-        # symbol_images = self._extract_region_images(roi_coordinates["symbol_regions"])
-        # self.run_times["Symbol region extraction"] = time.time() - start_time
+        # symbol_images = self._extract_region_images(state.aligned_image, state.roi_coordinates["symbol_regions"])
+        # state.run_times["Symbol region extraction"] = time.time() - start_time
 
 
-        return LabelResult(template_type=template_type,
-                           roi_coordinates=roi_coordinates,
-                           region_texts=region_texts,
-                           region_barcodes=region_barcodes,
-                           is_anomaly=is_anomaly,
-                           text_region_images=self.text_region_images,
-                           barcode_images=self.barcode_images,
-                           aligned_image=self.full_label_image,
-                           run_times=self.run_times)
+        return LabelResult(template_type=state.template_type,
+                           roi_coordinates=state.roi_coordinates,
+                           region_texts=state.region_texts,
+                           region_barcodes=state.region_barcodes,
+                           is_anomaly=state.is_anomaly,
+                           text_region_images=state.text_region_images,
+                           barcode_images=state.barcode_images,
+                           aligned_image=state.aligned_image,
+                           run_times=state.run_times)
     
     def _load_anomaly_detection_model(self, model_path: str):
         '''
@@ -152,7 +187,7 @@ class LabelProcessor:
         '''
         General postprocessing of extracted text to normalize text format 
         '''
-        text = text.replace("\n", " ").strip()
+        text = text.replace("\n", " ").strip().lower()
         return text
     
     def _handle_scan_file(self, scan: str | np.ndarray) -> np.ndarray:
@@ -185,36 +220,23 @@ class LabelProcessor:
                 cleaned_image[y0:y1, x0:x1] = 255
         return cleaned_image
     
-    def _extract_preprocessed_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
+    def _extract_preprocessed_region_images(self,
+                                            source_image: np.ndarray,
+                                            roi_coordinates,
+                                            image_processor: ImageProcessor) -> dict[str, np.ndarray]:
         region_images = {}
         for roi_name, coords in roi_coordinates.items():
-            image = ipf.extract_roi(self.full_label_image, coords)
-            image = self.image_processor.preprocess_region_image(roi_name, image)
+            image = ipf.extract_roi(source_image, coords)
+            image = image_processor.preprocess_region_image(roi_name, image)
             region_images[roi_name] = image
         return region_images
     
-    def _extract_region_images(self, roi_coordinates) -> dict[str, np.ndarray]:
+    def _extract_region_images(self, source_image: np.ndarray, roi_coordinates) -> dict[str, np.ndarray]:
         region_images = {}
         for roi_name, coords in roi_coordinates.items():
-            image = ipf.extract_roi(self.full_label_image, coords)
+            image = ipf.extract_roi(source_image, coords)
             region_images[roi_name] = image
         return region_images
-    
-    def _extract_all_region_texts(self) -> dict[str, str]:
-        assert self.text_region_images, "Text region images have not been extracted."
-
-        region_texts = {}
-        for roi_name, img in self.text_region_images.items():
-            img = Image.fromarray(img)
-            config = self.tesserocr_config[self._get_suitable_config_key(roi_name)]
-            with tesserocr.PyTessBaseAPI(path=self.tessdata_dir,lang=config["lang"], oem=config["oem"]) as api:
-                api.SetPageSegMode(config["psm"])
-                for k, v in config["vars"].items():
-                    api.SetVariable(k, v)
-                
-                api.SetImage(img)
-                region_texts[roi_name] = self._postprocess_text(api.GetUTF8Text().strip())
-        return region_texts
     
     def _get_suitable_config_key(self, roi_name: str) -> str:
         for key in self.tesserocr_config.keys():
@@ -245,25 +267,31 @@ class LabelProcessor:
         api.SetImageBytes(img_array.tobytes(), width=w, height=h, bytes_per_pixel=1, bytes_per_line=w)
         text = api.GetUTF8Text().strip()
         api.Clear()  
-        
-        return roi_name, self._postprocess_text(text)
+        return roi_name, text
 
-    def _extract_all_region_text_parallel(self):
-        assert self.text_region_images, "Text region images have not been extracted."
+    def _extract_all_region_text_parallel(self,
+                                          text_region_images: dict[str, np.ndarray],
+                                          postprocess: bool = True,
+                                          max_workers: int = 8) -> dict[str, str]:
+        assert text_region_images, "Text region images have not been extracted."
 
-        tasks = list(self.text_region_images.items())
+        tasks = list(text_region_images.items())
 
-        with ThreadPoolExecutor(max_workers=8, initializer=self._init_thread_apis) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers, initializer=self._init_thread_apis) as executor:
             results = list(executor.map(self._ocr_task, tasks))
+        
+        if postprocess:
+            results = {roi_name: self._postprocess_text(text) for roi_name, text in results}
+        else:
+            results = dict(results)
+        return results
 
-        return dict(results)
 
-
-    def _extract_all_barcodes(self) -> dict[str, list]:
-        assert self.barcode_images, "Barcode images have not been extracted."
+    def _extract_all_barcodes(self, barcode_images: dict[str, np.ndarray]) -> dict[str, list]:
+        assert barcode_images, "Barcode images have not been extracted."
 
         barcode_results = {}
-        for roi_name, img in self.barcode_images.items():
+        for roi_name, img in barcode_images.items():
             barcodes = zxing.read_barcodes(img,
                                            formats=zxing.BarcodeFormat.LinearCodes | zxing.BarcodeFormat.DataMatrix,
                                            return_errors=True,

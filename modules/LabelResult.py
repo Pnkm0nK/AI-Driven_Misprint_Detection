@@ -46,6 +46,9 @@ class LabelResult:
         self._barcode_images = barcode_images
         self._symbol_images = symbol_images
         self.run_times = run_times
+    
+    def get_extracted_text_regions(self) -> dict[str, np.ndarray]:
+        return self._text_region_images
 
     def get_extracted_texts(self) -> dict[str, str]:
         return self.region_texts

@@ -98,7 +98,7 @@ class AnomalibEstimator(BaseEstimator, ABC):
         self._last_scores = None
 
     def __del__(self):
-        if hasattr(self, "_tmp_root"):
+        if hasattr(self, "_tmp_root") and self._tmp_root is not None:
             self._cleanup_tmp_root()
 
     @abstractmethod

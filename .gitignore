@@ -8,6 +8,7 @@ training_data/
 yolo_runs/
 *train*
 *test*
+raw_gts
 parsed_data
 experiments
 anomalous_data
