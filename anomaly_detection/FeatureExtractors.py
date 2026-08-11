@@ -10,100 +10,6 @@ from PIL import Image
 import skimage.feature as skif
 import cv2
 
-class ORBVladGridFeatureExtractor(TransformerMixin, BaseEstimator):
-    def __init__(self,
-                 n_features=250,
-                 n_visual_words=50,
-                 cells_per_image=(4,4),
-                 use_precomputed_orb_features=False
-                 ):
-        self.n_features = n_features
-        self.n_visual_words = n_visual_words
-        self.cells_per_image = cells_per_image
-        self.use_precomputed_orb_features = use_precomputed_orb_features
-    
-    def _get_residuals(self, descriptors):
-        ''' Compute residuals of ORB descriptors to their nearest visual words'''
-        if descriptors is None or len(descriptors) == 0:
-            return np.zeros((self.n_features, 32), dtype=np.float32)
-        
-        residuals = []
-
-
-        for descriptor in descriptors:
-            distances = np.linalg.norm(self._visual_words - descriptor, axis=1)
-            nearest_idx = np.argmin(distances)
-            residuals.append(descriptor - self._visual_words[nearest_idx])
-
-        return np.array(residuals)
-
-    def fit(self, X, y=None):
-        feature_vectors = []
-        orb = cv2.ORB_create(nfeatures=self.n_features) 
-        self.kmeans = KMeans(n_clusters=self.n_visual_words, random_state=42)
-        for image in tqdm(X, desc=f"Getting ORB features for KMeans fitting"):
-            keypoints, features = orb.detectAndCompute(image, None)
-            feature_vectors.append(features)
-        self.kmeans.fit(np.vstack(feature_vectors))
-        return self
-
-    def transform(self, X):
-        feature_vectors = []
-        orb = cv2.ORB_create(nfeatures=self.n_features) 
-        for image in tqdm(X, desc=f"Extracting ORB features"):
-            cell_vectors = np.zeros((self.cells_per_image[0], self.cells_per_image[1], self.n_visual_words,32), dtype=np.float32)
-
-            if not self.use_precomputed_orb_features:
-                keypoints, features = orb.detectAndCompute(image, None)
-            else:
-                keypoints = [sample[0] for sample in X]
-                features = [sample[1] for sample in X]
-
-            nearest_visual_word_ids = self.kmeans.predict(features)
-            for kp, nearest_visual_word_id, feature in zip(keypoints, nearest_visual_word_ids, features):
-                visual_word_vector = self.kmeans.cluster_centers_[nearest_visual_word_id]
-                res = feature - visual_word_vector
-                x, y = int(kp.pt[0]), int(kp.pt[1])
-                cell_x = min(x * self.cells_per_image[1] // image.shape[1], self.cells_per_image[1] - 1)
-                cell_y = min(y * self.cells_per_image[0] // image.shape[0], self.cells_per_image[0] - 1)
-                cell_vectors[cell_y, cell_x, nearest_visual_word_id] += res
-            vec = cell_vectors.flatten()
-            vec = np.sign(vec) * np.sqrt(np.abs(vec))
-            vec = vec / np.linalg.norm(vec, ord=2).clip(min=1e-12)
-            feature_vectors.append(vec)
-
-        return np.asarray(feature_vectors, dtype=np.float32)
-
-class DenseBRIEFFeatureExtractor(TransformerMixin, BaseEstimator):
-    def __init__(self, n_points=500):
-        self.n_points = n_points
-        self.MARGIN = 16 # to avoid keypoints being too close to the border
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
-        keypoints = []
-        if len(X) != 0:
-            height, width = X[0].shape[:2]
-        points_per_axis = int(np.sqrt(self.n_points))
-        for x in np.linspace(self.MARGIN, width - 1 - self.MARGIN, points_per_axis):
-            for y in np.linspace(self.MARGIN, height - 1 - self.MARGIN, points_per_axis):
-                keypoints.append(cv2.KeyPoint(x, y, 31))
-        keypoints = np.array(keypoints)
-        self.actual_len = len(keypoints)
-        feature_vectors = []
-        extractor = cv2.ORB_create(patchSize=31, edgeThreshold=self.MARGIN)
-        for image in tqdm(X, desc=f"Extracting dense BRIEF features"):
-            # fix vector to have consistent size in case some keypoints are invalid
-            # for extractor, leave them as zero
-            fixed_vector = np.zeros((self.actual_len, 32), dtype=np.float32)
-            _, features = extractor.compute(image, keypoints)
-            lim = min(len(features), self.actual_len)
-            fixed_vector[:lim] = features[:lim]
-            feature_vectors.append(fixed_vector.flatten())
-        return np.asarray(feature_vectors, dtype=np.float32)
-
 class LBPFeatureExtractor(TransformerMixin, BaseEstimator):
     def __init__(self, n_points=8, radius=1):
         self.n_points = n_points
@@ -232,7 +138,8 @@ class DNNFeatureExtractor(TransformerMixin, BaseEstimator):
                     dummy_input = torch.zeros(1, 3, 224, 224).to(self.device)
                     outputs = self.model(dummy_input) 
                     batch_features = outputs[0]
-                    batch_features = torch.nn.functional.adaptive_avg_pool2d(batch_features, self.pool_out_size)
+                    if self.pool_out_size is not None:
+                        batch_features = torch.nn.functional.adaptive_avg_pool2d(batch_features, self.pool_out_size)
                     self.feat_dim = batch_features.view(1, -1).size(1)
                     print(f"Layer {self.layer} flattened dimension: {self.feat_dim}")
             for info in self.model.feature_info:

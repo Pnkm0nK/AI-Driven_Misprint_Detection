@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import modules.image_processing_functions as ipf
 from utilities.utils import display_region_image
 from utilities.custom_types import ROICollection
 
@@ -9,6 +10,7 @@ class LabelResult:
                  region_texts: dict[str,str],
                  region_barcodes: dict[str,str],
                  is_anomaly: bool,
+                 anomaly_map: np.ndarray,
                  text_region_images: dict[str,np.ndarray],
                  barcode_images: dict[str,np.ndarray],
                  aligned_image: np.ndarray,
@@ -45,6 +47,7 @@ class LabelResult:
         self._text_region_images = text_region_images
         self._barcode_images = barcode_images
         self._symbol_images = symbol_images
+        self.anomaly_map = anomaly_map
         self.run_times = run_times
     
     def get_extracted_text_regions(self) -> dict[str, np.ndarray]:

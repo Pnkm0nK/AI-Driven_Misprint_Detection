@@ -5,29 +5,65 @@ import numpy as np
 class ImageProcessor():
     def __init__(self):
         pass
-    def preprocess_image_general(self, image: np.ndarray) -> np.ndarray:
-        gray = ipf.convert_to_greyscale(image) 
-        resized = cv2.resize(gray, (0,0), fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC) 
+
+    def preprocess_image_general(self, image: np.ndarray, barcode=False) -> np.ndarray:
+        img = ipf.convert_to_greyscale(image) 
         
-        padded = cv2.copyMakeBorder(resized, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255,255,255])
-        return padded
-    
+        if barcode:
+            img = cv2.resize(img, (0,0), fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        else:
+            if img.shape[0] < 100:
+                scale = 100 / img.shape[0]
+                new_width = int(img.shape[1] * scale)
+                img = cv2.resize(img, (new_width, 100), interpolation=cv2.INTER_CUBIC)
+        
+        img = cv2.copyMakeBorder(img, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=[255,255,255])
+        return img
+
+    # --- Text Label Methods ---
     def preprocess_top_label(self, image: np.ndarray) -> np.ndarray:
         return self.preprocess_image_general(image)
-    
+
     def preprocess_large_label(self, image: np.ndarray) -> np.ndarray:
-        # Rotate counterclockwise and do general preprocessing
         turned = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         return self.preprocess_image_general(turned)
-    
+
     def preprocess_small_label(self, image: np.ndarray) -> np.ndarray:
         return self.preprocess_image_general(image)
-    
+
     def preprocess_patient_label(self, image: np.ndarray) -> np.ndarray:
         return self.preprocess_image_general(image)
-    
+
+    # --- Barcode Specific Methods ---
+    def preprocess_top_barcode(self, image: np.ndarray) -> np.ndarray:
+        return self.preprocess_image_general(image, barcode=True)
+
+    def preprocess_large_barcode(self, image: np.ndarray) -> np.ndarray:
+        turned = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return self.preprocess_image_general(turned, barcode=True)
+
+    def preprocess_small_barcode(self, image: np.ndarray) -> np.ndarray:
+        return self.preprocess_image_general(image, barcode=True)
+
+    def preprocess_patient_barcode(self, image: np.ndarray) -> np.ndarray:
+        return self.preprocess_image_general(image, barcode=True)
+
     def get_suitable_preprocessing_method(self, roi_name: str):
         roi_name = roi_name.lower()
+        
+        # Picking logic for Barcodes
+        if "code128" in roi_name or "ecc200" in roi_name:
+            if "top" in roi_name:
+                return self.preprocess_top_barcode
+            elif "large" in roi_name:
+                return self.preprocess_large_barcode
+            elif "small" in roi_name:
+                return self.preprocess_small_barcode
+            elif "patient" in roi_name:
+                return self.preprocess_patient_barcode
+            return lambda img: self.preprocess_image_general(img, barcode=True)
+
+        # Picking logic for Labels
         if "top" in roi_name:
             return self.preprocess_top_label
         elif "large" in roi_name:
@@ -36,8 +72,8 @@ class ImageProcessor():
             return self.preprocess_small_label
         elif "patient" in roi_name:
             return self.preprocess_patient_label
-        else:
-            return self.preprocess_image_general
+        
+        return self.preprocess_image_general
     
     def preprocess_region_image(self, roi_name: str, image: np.ndarray) -> np.ndarray:
         '''
@@ -77,6 +113,12 @@ class Type151ImageProcessor(ImageProcessor):
     def preprocess_patient_label(self, image):
         image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         return super().preprocess_image_general(image)
+    def preprocess_small_barcode(self, image):
+        image = cv2.rotate(image, cv2.ROTATE_180)
+        return super().preprocess_image_general(image, barcode=True)
+    def preprocess_patient_barcode(self, image):
+        image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return super().preprocess_image_general(image, barcode=True)
 
 class Type146ImageProcessor(ImageProcessor):
     def __init__(self):

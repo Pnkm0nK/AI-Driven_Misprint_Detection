@@ -1,4 +1,6 @@
 results/
+models
+wrong_ground_truth
 label_type_annotations/
 ground_truth/
 .vscode/

@@ -7,7 +7,7 @@ class GMMAnomalyEstimator(GaussianMixture):
         super().__init__(n_components=n_components, covariance_type=covariance_type,
                          reg_covar=reg_covar, n_init=n_init, max_iter=max_iter, random_state=random_state)
         self.n_components = n_components
-        self.threshold_percentile = 100 - threshold_percentile
+        self.threshold_percentile = threshold_percentile
         self.covariance_type = covariance_type
         self.random_state = random_state
         self._last_scores_key = None
@@ -23,15 +23,17 @@ class GMMAnomalyEstimator(GaussianMixture):
         if self._last_scores_key == key and self._last_scores is not None:
             train_scores = self._last_scores
         else:
-            train_scores = super().score_samples(X)
+            # GMM's score_samples returns log-likelihood, we want negative log-likelihood for anomaly scoring
+            # higher scores indicate more anomalous samples
+            train_scores = -super().score_samples(X)
             self._last_scores_key = key
             self._last_scores = train_scores
         return train_scores
 
     def fit(self, X, y=None):
         super().fit(X)
-        train_scores = self._get_gmm_scores(X)
-        self._threshold = np.percentile(train_scores, self.threshold_percentile)
+        self.train_scores = self._get_gmm_scores(X)
+        self._threshold = np.percentile(self.train_scores, self.threshold_percentile)
         self.is_fitted_ = True
         return self
 
@@ -42,5 +44,5 @@ class GMMAnomalyEstimator(GaussianMixture):
     
     def predict(self, X):
         scores = self.score_samples(X)
-        return (scores < self._threshold).astype(int)
+        return (scores > self._threshold).astype(int)
         

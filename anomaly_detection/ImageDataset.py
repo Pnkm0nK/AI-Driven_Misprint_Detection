@@ -74,5 +74,10 @@ def to_pil_rgb(image):
         return None
     if image.ndim == 2:
         return Image.fromarray(image).convert("RGB")
+    elif image.ndim == 3:
+        if image.shape[2] == 3:
+            return Image.fromarray(image)
+        elif image.shape[2] == 4:
+            return Image.fromarray(image).convert("RGB")
 
     return None

@@ -9,7 +9,7 @@ import numpy as np
 
 
 class WinClipZeroShotEstimator(BaseEstimator):
-    def __init__(self, batch_size=16, class_name="Spine implant label", threshold_percentile=0.5, k_shot=10, device="cuda"):
+    def __init__(self, batch_size=16, class_name="Spine implant label", threshold_percentile=98, k_shot=10, device="cuda"):
         self.batch_size = batch_size
         self.class_name = class_name
         self.threshold_percentile = threshold_percentile
@@ -34,12 +34,10 @@ class WinClipZeroShotEstimator(BaseEstimator):
     def _cache_key(self, X):
         return (id(X), len(X))
 
-    def _get_percentile_value(self):
-        if self.threshold_percentile <= 1:
-            return self.threshold_percentile * 100
-        return self.threshold_percentile
-    
     def _get_scores(self, X):
+        cache_key = self._cache_key(X)
+        if self._last_scores_key == cache_key and self._last_scores is not None:
+            return self._last_scores
         total_scores = np.zeros(len(X), dtype=np.float32)
         n_valid = 0
         
@@ -67,19 +65,18 @@ class WinClipZeroShotEstimator(BaseEstimator):
 
         if n_valid == 0:
             raise RuntimeError("No WinClip scores computed; all images failed to load?")
+        self._last_scores_key = cache_key
+        self._last_scores = total_scores
         return total_scores
 
     @torch.no_grad()
     def fit(self, X, y=None):
-        reference_tensor = X[:self.k_shot]
-        reference_tensor = torch.stack([self.img_transform(to_pil_rgb(img)) for img in reference_tensor]).to(self.device)
+        raw_reference_tensors = torch.stack([self.img_transform((to_pil_rgb(img))) for img in X[:self.k_shot]]).to(self.device)
         self._load_winclip()
-        print(f"Fitting winclip with {len(reference_tensor)} reference images...")
-        self.model.setup(reference_images=reference_tensor)
+        print(f"Fitting winclip with {len(raw_reference_tensors)} raw reference images...")
+        self.model.setup(class_name=self.class_name, reference_images=raw_reference_tensors)
         train_scores = self._get_scores(X)
-        self._threshold = np.percentile(train_scores, self._get_percentile_value())
-        self._last_scores_key = self._cache_key(X)
-        self._last_scores = train_scores
+        self._threshold = np.percentile(train_scores, self.threshold_percentile)
         print("WinClip setup complete")
 
         self.is_fitted_ = True
@@ -106,14 +103,14 @@ class WinClipZeroShotEstimator(BaseEstimator):
         return (scores > self._threshold).astype(int)
 
 class ClipZeroShotEstimator(BaseEstimator):
-    def __init__(self, batch_size=16, model_name="ViT-B-32", pretrained="openai",prompts=None, threshold=0.5, device="cuda"):
+    def __init__(self, batch_size=16, model_name="ViT-B-32", pretrained="openai",prompts=None, threshold_percentile=99, device="cuda"):
         self.batch_size = batch_size
         self.model_name = model_name
         self.pretrained = pretrained
         if not prompts:
             prompts = ["normal label of a spine implant, adhering to all standards with no misprints", "anomalous label with misprints, smudges, or other defects that deviate from the normal appearance"]
         self.prompts = prompts
-        self.threshold = threshold
+        self.threshold_percentile = threshold_percentile
         self.device = device if(torch.cuda.is_available() and device == "cuda") else "cpu"
         self._last_scores_key = None
         self._last_scores = None
@@ -132,8 +129,8 @@ class ClipZeroShotEstimator(BaseEstimator):
     def fit(self, X, y=None):
         self._load_openclip()
         self.is_fitted_ = True
-        self._last_scores_key = None
-        self._last_scores = None
+        scores = self.score_samples(X)
+        self._threshold = np.percentile(scores, self.threshold_percentile)
         return self
 
     @torch.no_grad()
@@ -156,7 +153,7 @@ class ClipZeroShotEstimator(BaseEstimator):
         data_loader = torch.utils.data.DataLoader(ImageDataset(X, self.preprocess),
                                                    batch_size=self.batch_size,
                                                    shuffle=False,
-                                                   num_workers=4,
+                                                   num_workers=0,
                                                    pin_memory=(self.device == "cuda"),
                                                    collate_fn=_collate_no_skip_none)
 
@@ -171,8 +168,6 @@ class ClipZeroShotEstimator(BaseEstimator):
                 text_probs = (100.0 * batch_features @ text_features.T).softmax(dim=-1)
                 total_probabilities[idxs.numpy()] = text_probs.cpu().float().numpy()
 
-            if not batch:
-                continue
             n_valid += len(idxs)
 
         print(f"Computed probabilities, {n_valid} valid out of {len(X)} images.")
@@ -187,4 +182,4 @@ class ClipZeroShotEstimator(BaseEstimator):
     
     def predict(self, X):
         probabilities = self.score_samples(X)
-        return (probabilities > self.threshold).astype(int)
+        return (probabilities > self._threshold).astype(int)

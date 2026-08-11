@@ -11,7 +11,7 @@ ANNOTATIONS_DIR = BASE_DIR / "label_type_annotations"
 SCANS_DIR    = BASE_DIR.parent / "label_scans"
 MODEL_DIR     = BASE_DIR / "models"
 
-ANOMALY_DETECTION_MODEL_NAME = "patchcore_ad.pkl"
+ANOMALY_DETECTION_MODEL_NAME = "new_dinomaly.pkl"
 ANOMALY_DETECTION_MODEL_PATH = MODEL_DIR / ANOMALY_DETECTION_MODEL_NAME
 
 LABEL_CLASSIFIER_MODEL_NAME = "yolo_label_classifier.pt"

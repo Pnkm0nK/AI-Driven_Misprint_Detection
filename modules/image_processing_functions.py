@@ -5,6 +5,50 @@ import cv2
 from deskew import determine_skew
 import utilities.config as config
 import opensimplex 
+from pathlib import Path
+
+def get_highlighted_anomalies(
+    image: np.ndarray, 
+    anomaly_map: np.ndarray, 
+    threshold: float = 0.5, 
+    alpha: float = 0.6
+) -> np.ndarray:
+    '''
+    Overlays the anomaly map on the input image using a heatmap with a specified alpha transparency,
+    highlighting areas where the anomaly score exceeds the specified threshold.
+    
+    :param image: The original input image (grayscale or color).
+    :param anomaly_map: A 2D array of anomaly scores corresponding to the input image.
+    :param threshold: The anomaly score threshold above which areas will be highlighted.
+    :param alpha: Transparency factor for blending (0.0 = only original image, 1.0 = only heatmap).
+    '''
+    # 1. Ensure the base image is BGR
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+
+    # 2. Normalize and resize the anomaly map to fit the base image
+    anomaly_map = anomaly_map - 0.2
+    anomaly_map = np.clip(anomaly_map, 0, np.max(anomaly_map))  
+    normalized_map = cv2.normalize(anomaly_map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    padded = cv2.copyMakeBorder(normalized_map,top=28, bottom=28, left=28, right=28, borderType=cv2.BORDER_CONSTANT, value=0)
+    normalized_map = cv2.resize(padded, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_CUBIC)
+
+    # 3. Create a continuous color heatmap from the normalized map
+    heatmap = cv2.applyColorMap(normalized_map, cv2.COLORMAP_JET)
+
+    # 4. Create the binary mask based on the threshold rule
+    _, binary_mask = cv2.threshold(normalized_map, int(threshold * 255), 255, cv2.THRESH_BINARY)
+
+    # 5. Blend the original image and the color heatmap together
+    blended = cv2.addWeighted(heatmap, alpha, image, 1 - alpha, 0)
+
+    # 6. Convert the 2D binary mask to 3D to match BGR shape for broadcasting
+    mask_3d = cv2.cvtColor(binary_mask, cv2.COLOR_GRAY2BGR)
+
+    # 7. Apply the blended heatmap only where the mask is active
+    highlighted_image = np.where(mask_3d == 255, blended, image)
+
+    return highlighted_image
 
 def convert_to_greyscale(img: np.ndarray) -> np.ndarray:
     '''
@@ -16,14 +60,6 @@ def convert_to_greyscale(img: np.ndarray) -> np.ndarray:
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
     return img
 
-
-def threshold_image(image: np.ndarray) -> np.ndarray:
-    '''
-    Apply Otsu's thresholding to binarize the input image. Returns the thresholded image.
-    '''
-    _, thresh = cv2.threshold(image, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return thresh
-
 def apply_random_augmentation(image: np.ndarray) -> np.ndarray:
     num_augmentations = random.randint(1, 3)
     augmentations = [add_binary_simplex_window, add_motion_blur, add_streaks]
@@ -34,9 +70,11 @@ def apply_random_augmentation(image: np.ndarray) -> np.ndarray:
             image = augmentation(image, color=color, threshold=random.uniform(0.5, 0.8), scale=random.uniform(0.01, 0.05))
         elif augmentation == add_motion_blur:
             h, w = image.shape[:2]
-            start = (random.randint(0, w//2), random.randint(0, h//2))
-            end = (random.randint(w//2, w), random.randint(h//2, h))
-            image = augmentation(image, start=start, end=end, feather=random.randint(10, 30), kernel_size=random.choice([15, 25]))
+            size_x = random.randint(10, w//4)
+            size_y = random.randint(10, h//4)
+            start = (random.randint(0,w-size_x), random.randint(0, h-size_y))
+            end = (start[0]+size_x, start[1]+size_y)
+            image = augmentation(image, start=start, end=end, feather=random.randint(10, 30), kernel_size=random.choice([9, 15, 21, 25]))
         elif augmentation == add_streaks:
             image = augmentation(image, num_streaks=random.randint(5, 15), color=(random.randint(200,255), random.randint(200,255), random.randint(200,255)), thickness=random.randint(1,4))
     return image
@@ -238,7 +276,7 @@ def _align_using_orb_matches(matches, src_kps, dst_kps, template, original_image
                             borderMode=cv2.BORDER_CONSTANT,
                             borderValue=(255, 255, 255))
 
-def orb_align(image: np.ndarray, template_type:str, n_features:int=100, max_matches: int = 15, visualize=False)-> np.ndarray:
+def orb_align(image: np.ndarray, template_type:str, n_features:int=500, max_matches: int = 100, crosscheck=True, dst_kps=None, target_descrs=None, visualize=False)-> np.ndarray:
     '''
     Align the input image to the specified template type using ORB feature matching. Returns the aligned image.
     :param image: Input image to be aligned
@@ -258,16 +296,21 @@ def orb_align(image: np.ndarray, template_type:str, n_features:int=100, max_matc
     original_image = image.copy()
     image = convert_to_greyscale(image)
     template_img_path = config.TEMPLATES[template_type]
-    template = cv2.imread(str(template_img_path), cv2.IMREAD_GRAYSCALE)
 
     orb = cv2.ORB_create(nfeatures=n_features)
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=crosscheck)
 
     src_kps, query_descrs = orb.detectAndCompute(image, None)
 
+    template = cv2.imread(str(template_img_path), cv2.IMREAD_GRAYSCALE)
     assert template is not None, f"Failed to load template image at {template_img_path}"
-    dst_kps, target_descrs = orb.detectAndCompute(template, None)
-    # maybe try Knn match and Lowe's ratio test if too many false matches with crossCheck
+
+    if dst_kps is None or target_descrs is None:
+        dst_kps, target_descrs = orb.detectAndCompute(template, None)
+
+    if len(dst_kps) != n_features:
+        raise ValueError("Number of keypoints in template does not match expected n_features. Ensure that the template image is processed with the same ORB settings and that dst_kps and target_descrs are correctly passed if precomputed.")
+
     matches = bf.match(query_descrs, target_descrs)
     matches = sorted(matches, key=lambda x: x.distance)
     matches = matches[:min(max_matches, len(matches))]
@@ -353,6 +396,49 @@ def orb_align_and_clasify( image: np.ndarray, n_features:int=200, max_matches: i
         cv2.destroyAllWindows()
     return estimated_template_type, aligned_image
 
+
+def save_orb_features(image: np.ndarray, output_path: str | Path, n_features: int = 500) -> tuple[list[cv2.KeyPoint], np.ndarray]:
+    image = convert_to_greyscale(image)
+    orb = cv2.ORB_create(nfeatures=n_features)
+    keypoints, descriptors = orb.detectAndCompute(image, None)
+
+    keypoint_array = np.array([
+        (kp.pt[0], kp.pt[1], kp.size, kp.angle, kp.response, kp.octave, kp.class_id)
+        for kp in keypoints
+    ], dtype=np.float32)
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    np.savez_compressed(
+        output_path,
+        keypoints=keypoint_array,
+        descriptors=descriptors if descriptors is not None else np.empty((0, 32), dtype=np.uint8),
+        n_features=np.array([n_features], dtype=np.int32)
+    )
+
+    return keypoints, descriptors
+
+def load_orb_features(features_path: str | Path) -> tuple[list[cv2.KeyPoint], np.ndarray]:
+    data = np.load(str(features_path))
+    keypoints_raw = data["keypoints"]
+    descriptors = data["descriptors"]
+
+    keypoints = [
+        cv2.KeyPoint(
+            x=float(kp[0]),
+            y=float(kp[1]),
+            size=float(kp[2]),
+            angle=float(kp[3]),
+            response=float(kp[4]),
+            octave=int(kp[5]),
+            class_id=int(kp[6])
+        )
+        for kp in keypoints_raw
+    ]
+
+    return keypoints, descriptors
+
 def calculate_image_difference(image1: np.ndarray, image2: np.ndarray, visualize: bool = True) -> np.ndarray:
     # greyscale and threshold both images to reduce difference to variable info only
     # pixel intensities may differ slightly due to scanning differences
@@ -364,8 +450,8 @@ def calculate_image_difference(image1: np.ndarray, image2: np.ndarray, visualize
     # in experiments lead to ~20% reduction in difference
     # which is not enough to make a sensitive enough detection
 
-    image1 = threshold_image(image1)
-    image2 = threshold_image(image2)
+    _, image1 = cv2.threshold(image1, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, image2 = cv2.threshold(image2, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
 
     diff_M = cv2.absdiff(image1, image2)
@@ -382,6 +468,7 @@ def calculate_image_difference(image1: np.ndarray, image2: np.ndarray, visualize
         print(f"Shape image 1: {image1.shape}, Shape image 2: {image2.shape}")
         for title, img in [("Image 1", image1), ("Image 2", image2), ("Difference Image", diff_M)]:
             resized = cv2.resize(img, (0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_NEAREST)
+            cv2.imwrite(str(config.RESULTS_DIR / f"{title.replace(' ', '_').lower()}.jpg"), img)
             cv2.imshow(title, resized)
             cv2.waitKey(0)
         cv2.destroyAllWindows()

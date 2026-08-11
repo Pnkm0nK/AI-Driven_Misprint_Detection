@@ -1,7 +1,9 @@
 import numpy as np
 from sklearn.base import BaseEstimator
 from pathlib import Path
+import os
 import shutil
+import sys
 import tempfile
 
 import cv2
@@ -96,10 +98,18 @@ class AnomalibEstimator(BaseEstimator, ABC):
         self._tmp_root = None
         self._last_scores_key = None
         self._last_scores = None
+        self._last_anomaly_maps = None
 
     def __del__(self):
-        if hasattr(self, "_tmp_root") and self._tmp_root is not None:
-            self._cleanup_tmp_root()
+        # During interpreter shutdown, pathlib/sys internals can already be torn down.
+        # __del__ must never raise in that phase.
+        try:
+            if hasattr(sys, "is_finalizing") and sys.is_finalizing():
+                return
+            if hasattr(self, "_tmp_root") and self._tmp_root is not None:
+                self._cleanup_tmp_root()
+        except Exception:
+            pass
 
     @abstractmethod
     def _build_model(self, checkpoint_path=None):
@@ -113,7 +123,12 @@ class AnomalibEstimator(BaseEstimator, ABC):
         if self._tmp_root is None:
             return
         try:
-            shutil.rmtree(self._tmp_root, ignore_errors=True)
+            tmp_root = os.fspath(self._tmp_root)
+        except Exception:
+            self._tmp_root = None
+            return
+        try:
+            shutil.rmtree(tmp_root, ignore_errors=True)
         finally:
             self._tmp_root = None
 
@@ -137,6 +152,11 @@ class AnomalibEstimator(BaseEstimator, ABC):
     
     def _cache_key(self, X):
         return (id(X), len(X))
+    
+    def get_last_anomaly_maps(self):
+        if self._last_anomaly_maps is None:
+            raise ValueError("No anomaly maps available. Ensure that score_samples has been called at least once.")
+        return self._last_anomaly_maps
 
     def _prepare_dataset(self, images, split_name: str, is_anomaly=None):
         # Anomalib models expect file paths for their datasets for visualization and logging purposes, so writing normalized temp images during pipeline execution
@@ -168,9 +188,12 @@ class AnomalibEstimator(BaseEstimator, ABC):
         )
         predictions = self.engine.predict(model=self.model, dataloaders=predict_dataloader)
         scores = np.full(len(X), np.nan, dtype=np.float32)
+        anomaly_maps = [None] * len(X)
+
         for pred in predictions:
             pred_score = getattr(pred, "pred_score", None)
             pred_paths = getattr(pred, "image_path", None)
+            pred_amap = getattr(pred, "anomaly_map", None)
             if pred_score is None:
                 raise RuntimeError(f"Could not extract pred_score from prediction type {type(pred)}")
 
@@ -180,6 +203,17 @@ class AnomalibEstimator(BaseEstimator, ABC):
                 pred_score_values = [float(score) for score in pred_score]
             else:
                 pred_score_values = [float(pred_score)]
+            
+            if pred_amap is not None:
+                if torch.is_tensor(pred_amap):
+                    pred_amap_values = pred_amap.detach().cpu().numpy()
+                else:
+                    pred_amap_values = np.array(pred_amap)
+                
+                if pred_amap_values.ndim == 2:
+                    pred_amap_values = [pred_amap_values]
+            else:
+                pred_amap_values = [None] * len(pred_score_values)
 
             if pred_paths is None:
                 continue
@@ -194,12 +228,14 @@ class AnomalibEstimator(BaseEstimator, ABC):
                     continue
                 if 0 <= sample_idx < len(scores):
                     scores[sample_idx] = float(score)
+                    anomaly_maps[sample_idx] = pred_amap_values 
 
         missing = int(np.isnan(scores).sum())
         if missing > 0:
             raise RuntimeError(f"Missing anomaly scores for {missing} samples. Ensure all input images are valid 2D arrays.")
         
         self._last_scores_key = key
+        self._last_anomaly_maps = anomaly_maps
         scores = scores.astype(np.float32)
         self._last_scores = scores
         return scores
@@ -265,6 +301,7 @@ class PatchcoreEstimator(AnomalibEstimator):
         num_neighbors=9,
         threshold_percentile=95,
         tile_size=224,
+        stride=112,
         batch_size=8,
         num_workers=0,
         random_state=20,
@@ -285,6 +322,7 @@ class PatchcoreEstimator(AnomalibEstimator):
         self.transforms = transforms.ToTensor()
         self.num_neighbors = num_neighbors
         self.tile_size = tile_size
+        self.stride = stride
     
     def _build_model(self, checkpoint_path=None):
         if self.checkpoint_path is not None:
@@ -298,7 +336,7 @@ class PatchcoreEstimator(AnomalibEstimator):
             )
     
     def _build_callbacks(self):
-        return [TilerConfigurationCallback(enable=True,tile_size=self.tile_size, stride=self.tile_size//2)]
+        return [TilerConfigurationCallback(enable=True,tile_size=self.tile_size, stride=self.stride)]
 
 
 class DinomalyEstimator(AnomalibEstimator):
@@ -341,7 +379,7 @@ class DinomalyEstimator(AnomalibEstimator):
             decoder_depth=self.decoder_depth,
             remove_class_token=self.remove_class_token,
         )
-        model.configure_pre_processor(crop_size=448)
+        model.configure_pre_processor(crop_size=445)
         return model
     
     def _build_callbacks(self):

@@ -1,30 +1,26 @@
 import cv2
 import joblib
 import numpy as np
-import os
-import dotenv
 from typing import Optional
 import sklearn
 from ultralytics import YOLO
 import zxingcpp as zxing
-import tesserocr
-import threading
-from concurrent.futures import ThreadPoolExecutor
 import time
 
+import modules.OCRProcessor as ocr
 from modules.PDFConverter import PDFConverter
 from modules.ImageProcessor import ImageProcessor
 from modules.LabelResult import LabelResult
 from modules.ROIStorage import ROIStorage
 import modules.image_processing_functions as ipf
 from utilities.custom_types import ROICollection
-from utilities.tesserocr_config import tesserocr_config
 import utilities.config as config
 
 class PipelineState:
     def __init__(self):
         self.image: Optional[np.ndarray] = None
         self.aligned_image: Optional[np.ndarray] = None
+        self.anomaly_map: Optional[np.ndarray] = None
         self.template_type: str = None
         self.roi_coordinates: dict = {}
         self.text_region_images: dict = {}
@@ -43,26 +39,22 @@ class LabelProcessor:
     results after processing.
     display_all_region_images() can be used to visualize the extracted region images and their OCR results.
     '''
-    def __init__(self):
+    def __init__(self, ocr_processor: ocr.OCRProcessor = ocr.TesserocrProcessor()):
         '''
         Class for e2e processing of label scans.
         '''
-        dotenv.load_dotenv()
-
-        self.tessdata_dir = os.getenv("TESSDATA_DIR")
-        self.tesserocr_config = tesserocr_config
-        self.thread_local = threading.local()
-        self.state: Optional[PipelineState] = None
-        
+        self.ocr_processor = ocr_processor
         self.label_classifier = YOLO(config.LABEL_CLASSIFIER_MODEL_PATH)
         self.anomaly_detection_model = self._load_anomaly_detection_model(config.ANOMALY_DETECTION_MODEL_PATH)
+        # self.anomaly_detection_model.named_steps["estimator"]._threshold = 25
+        self.keypoints, self.descriptors = ipf.load_orb_features(config.MODEL_DIR / "151_orb.npz")
     
     def process_label(self, scan: str | np.ndarray,
                       template_type: str = None,
                       run_ocr: bool = True,
+                      read_barcodes: bool = True,
                       run_anomaly_detection: bool = True,
-                      postprocess_text: bool = True,
-                      ocr_workers: int = 8) -> LabelResult:
+                      postprocess_text: bool = True) -> LabelResult:
         '''
         Performs the full processing pipeline of a label scan. This includes:
         1. using ORB to align the label scan to a template and classify it to a template type. 
@@ -77,7 +69,6 @@ class LabelProcessor:
         :rtype: LabelResult
         '''
         state = PipelineState()
-        self.state = state
 
         # get image from scan(pdf or image file)
         start_time = time.time()
@@ -95,7 +86,12 @@ class LabelProcessor:
         state.template_type = template_type
 
         start_time = time.time()
-        state.aligned_image = ipf.orb_align(state.image, state.template_type, n_features=250, max_matches=50)
+        state.aligned_image = ipf.orb_align(state.image,
+                                            state.template_type,
+                                            dst_kps=self.keypoints,
+                                            target_descrs=self.descriptors,
+                                            visualize=True)
+
         state.run_times["ORB alignment"] = time.time() - start_time
 
         # specialize image processor to the template
@@ -116,13 +112,12 @@ class LabelProcessor:
         )
         state.run_times["Text region extraction"] = time.time() - start_time
         
-        if run_ocr:
+        if run_ocr and self.ocr_processor is not None:
             start_time = time.time()
-            state.region_texts = self._extract_all_region_text_parallel(
-                state.text_region_images,
-                postprocess=postprocess_text,
-                max_workers=ocr_workers,
-            )
+            state.region_texts = self.ocr_processor.extract_all_region_text_parallel(
+                    state.text_region_images,
+                    postprocess=postprocess_text,
+                )
             state.run_times["OCR text extraction"] = time.time() - start_time
 
         start_time = time.time()
@@ -131,16 +126,20 @@ class LabelProcessor:
             state.roi_coordinates["barcode_regions"],
             image_processor,
         )
-        state.run_times["Barcode region extraction"] = time.time() - start_time
-        
-        start_time = time.time()
-        state.region_barcodes = self._extract_all_barcodes(state.barcode_images)
-        state.run_times["Barcode reading"] = time.time() - start_time
+        if read_barcodes:
+            state.run_times["Barcode region extraction"] = time.time() - start_time
+            
+            start_time = time.time()
+            state.region_barcodes = self._extract_all_barcodes(state.barcode_images)
+            state.run_times["Barcode reading"] = time.time() - start_time
 
         if run_anomaly_detection:
             start_time = time.time()
-            normalized_image = ipf.convert_to_greyscale(state.aligned_image)
+            grey_aligned = ipf.convert_to_greyscale(state.aligned_image)
+            normalized_image = cv2.resize(grey_aligned, (0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
             is_anomaly: np.ndarray = self._perform_anomaly_detection(np.array([normalized_image]), binary=True)
+            amap = self.anomaly_detection_model.named_steps["estimator"].get_last_anomaly_maps()[0][0]
+            state.anomaly_map = ipf.get_highlighted_anomalies(image=normalized_image, anomaly_map=amap, threshold=0)
             state.is_anomaly = bool(is_anomaly[0])
             state.run_times["Anomaly detection"] = time.time() - start_time
 
@@ -155,11 +154,13 @@ class LabelProcessor:
                            roi_coordinates=state.roi_coordinates,
                            region_texts=state.region_texts,
                            region_barcodes=state.region_barcodes,
+                           anomaly_map=state.anomaly_map,
                            is_anomaly=state.is_anomaly,
                            text_region_images=state.text_region_images,
                            barcode_images=state.barcode_images,
                            aligned_image=state.aligned_image,
                            run_times=state.run_times)
+    
     
     def _load_anomaly_detection_model(self, model_path: str):
         '''
@@ -175,21 +176,11 @@ class LabelProcessor:
         Performs anomaly detection on the normalized (greyscaled, aligned)
         label image using the loaded anomaly detection model.
         '''
-        if not hasattr(self, "anomaly_detection_model"):
-            self.anomaly_detection_model = self._load_anomaly_detection_model(config.ANOMALY_DETECTION_MODEL_PATH)
         if binary:
             return self.anomaly_detection_model.predict(normalized_image)
         else:
             return self.anomaly_detection_model.score_samples(normalized_image)
 
-
-    def _postprocess_text(self, text: str) -> str:
-        '''
-        General postprocessing of extracted text to normalize text format 
-        '''
-        text = text.replace("\n", " ").strip().lower()
-        return text
-    
     def _handle_scan_file(self, scan: str | np.ndarray) -> np.ndarray:
         '''Handles the input scan file, which can be a path to a pdf or image file,
            or an already loaded image as a numpy array. It returns the image as a numpy array for further processing.
@@ -238,55 +229,6 @@ class LabelProcessor:
             region_images[roi_name] = image
         return region_images
     
-    def _get_suitable_config_key(self, roi_name: str) -> str:
-        for key in self.tesserocr_config.keys():
-            if key in roi_name:
-                return key
-        return "default"
-    
-    def _init_thread_apis(self):
-        """Initializes a tesserocr API instance for each thread in the ThreadPoolExecutor and stores them in thread-local storage to not reinitialize possibly saving time"""
-        if not hasattr(self.thread_local, "api_cache"):
-            self.thread_local.api_cache = {}
-            for name, cfg in self.tesserocr_config.items():
-                api = tesserocr.PyTessBaseAPI(path=self.tessdata_dir, lang=cfg["lang"], oem=cfg["oem"])
-                api.SetPageSegMode(cfg["psm"])
-                for k, v in cfg["vars"].items():
-                    api.SetVariable(k, v)
-                self.thread_local.api_cache[name] = api
-
-    def _ocr_task(self, item):
-        roi_name, img_array = item
-        cfg_key = self._get_suitable_config_key(roi_name)
-        
-        cfg_key = cfg_key if cfg_key in self.thread_local.api_cache else "default"
-        
-        api = self.thread_local.api_cache[cfg_key]
-        h, w  = img_array.shape
-        
-        api.SetImageBytes(img_array.tobytes(), width=w, height=h, bytes_per_pixel=1, bytes_per_line=w)
-        text = api.GetUTF8Text().strip()
-        api.Clear()  
-        return roi_name, text
-
-    def _extract_all_region_text_parallel(self,
-                                          text_region_images: dict[str, np.ndarray],
-                                          postprocess: bool = True,
-                                          max_workers: int = 8) -> dict[str, str]:
-        assert text_region_images, "Text region images have not been extracted."
-
-        tasks = list(text_region_images.items())
-
-        with ThreadPoolExecutor(max_workers=max_workers, initializer=self._init_thread_apis) as executor:
-            results = list(executor.map(self._ocr_task, tasks))
-        
-        if postprocess:
-            results = {roi_name: self._postprocess_text(text) for roi_name, text in results}
-        else:
-            results = dict(results)
-        return results
-
-
     def _extract_all_barcodes(self, barcode_images: dict[str, np.ndarray]) -> dict[str, list]:
         assert barcode_images, "Barcode images have not been extracted."
 

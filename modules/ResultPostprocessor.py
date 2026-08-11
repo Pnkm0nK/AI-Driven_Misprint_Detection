@@ -1,8 +1,11 @@
+import os
+
 import cv2
 from utilities.utils import display_region_image
 from utilities.metrics import calculate_character_error_rate, calculate_levenshtein_distance
 
 from modules.LabelResult import LabelResult
+from modules.OCRProcessor import OCRProcessor
 import utilities.config as config
 import json
 
@@ -10,6 +13,7 @@ class ResultPostprocessor:
     def __init__(self, results: LabelResult, gt_file_path: str = None):
         self.extracted_texts: dict[str, str] = results.get_extracted_texts()
         self.extracted_barcodes: dict[str, str] = results.get_extracted_barcodes()
+        self.anomaly_map = results.anomaly_map
         self.roi_coordinates = results.roi_coordinates
         self.text_distance_threshold = 2
         self.false_barcode_threshold = 1
@@ -18,13 +22,14 @@ class ResultPostprocessor:
         self._barcode_images = results._barcode_images
         self._is_anomaly = results.is_anomaly
         self._run_times = results.run_times
+        self.conclusion_text = ""
         self.has_defect = None
 
         try:
             with open(gt_file_path, 'r', encoding='utf-8') as f:
                 gt_data = json.load(f)
-                self.gt_texts: dict[str, str] = {k: v.lower() for k, v in gt_data["text_regions"].items()}
-                self.gt_barcodes: dict[str, str] = gt_data["barcode_regions"] 
+                self.gt_texts: dict[str, str] = {k: OCRProcessor._postprocess_text(v) for k, v in gt_data["text_regions"].items()}
+                self.gt_barcodes: dict[str, str] = {k: v for k, v in gt_data["barcode_regions"].items()}
         except (FileNotFoundError, TypeError):
             self.gt_texts = None
             self.gt_barcodes = None
@@ -40,7 +45,7 @@ class ResultPostprocessor:
 
     
     def conclude_defect_status(self):
-        if not "false_barcode_readings_n" in self.metrics:
+        if self.extracted_barcodes and not "false_barcode_readings_n" in self.metrics:
             self.add_barcode_reading_accuracy_metric()
         
         self.conclusion_text = ""
@@ -60,11 +65,16 @@ class ResultPostprocessor:
                 self._text_mismatched = False
 
         # barcode mismatch decision
-        if (self.metrics["false_barcode_readings_n"] > 0 and self._is_anomaly==True or
-           self.metrics["false_barcode_readings_n"] > self.false_barcode_threshold and self._is_anomaly==False):
-            self._barcode_mismatched = True
-        else: 
+        if not self.extracted_barcodes or not self.gt_barcodes:
             self._barcode_mismatched = False
+        else:
+            if (self.metrics["false_barcode_readings_n"] > 0 and
+                self._is_anomaly==True or self.metrics["false_barcode_readings_n"] > self.false_barcode_threshold
+               ):
+                self._barcode_mismatched = True
+                self.conclusion_text +=f"\nBarcode mismatch detected! {self.metrics['false_barcode_readings_n']} false readings."
+            else: 
+                self._barcode_mismatched = False
 
         if not self._is_anomaly and not self._text_mismatched and not self._barcode_mismatched:
             self.conclusion_text = "No defect detected."
@@ -72,15 +82,16 @@ class ResultPostprocessor:
             return 
         self.has_defect = True
         return
-    
-    def show_highlighted_mismatches(self):
+
+    def get_image_with_highlighted_mismatches(self):
         if not self.gt_texts:
             print("Ground truth texts not provided. Cannot show highlighted mismatches.")
             return
         img = self.full_label_image.copy()
         for roi_name, gt_text in self.gt_texts.items():
             pred_text = self.extracted_texts.get(roi_name, "")
-            if pred_text != gt_text:
+            distance = calculate_levenshtein_distance(pred_text, gt_text)
+            if distance > self.text_distance_threshold:
                 x0, y0, x1, y1 = self.roi_coordinates["text_regions"][roi_name]
                 cv2.rectangle(img, (x0, y0), (x1, y1), (0, 0, 255), 2)
         for roi_name, gt_barcode in self.gt_barcodes.items():
@@ -88,6 +99,14 @@ class ResultPostprocessor:
             if pred_barcode != gt_barcode:
                 x0, y0, x1, y1 = self.roi_coordinates["barcode_regions"][roi_name]
                 cv2.rectangle(img, (x0, y0), (x1, y1), (255, 0, 0), 2)
+        img = cv2.resize(img, (500, 1400))
+        return img
+
+    def show_highlighted_mismatches(self):
+        if not self.gt_texts and not self.gt_barcodes:
+            print("Ground truth data not provided. Cannot show highlighted mismatches.")
+            return
+        img = self.get_image_with_highlighted_mismatches()
         cv2.imshow("Highlighted Mismatches (Red: Text, Blue: Barcode)", img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
@@ -138,6 +157,8 @@ class ResultPostprocessor:
         formatted_accuracy = f"Correctly read {correct_count}/{total_count}; Accuracy:({accuracy*100:.1f}%)"
         self.metrics['barcode_reading_accuracy'] = formatted_accuracy
         self.metrics['false_barcode_readings_n'] = total_count - correct_count
+        self.metrics['correct_barcode_readings_n'] = correct_count
+        self.metrics['total_barcodes'] = total_count
         return
     
     def add_extracted_texts_to_summary(self):
@@ -168,22 +189,24 @@ class ResultPostprocessor:
         if not self.gt_texts:
             print("Ground truth texts not provided. Cannot display regions with mismatches.")
             return
-        for roi_name, gt_text in self.gt_texts.items():
-            pred_text = self.extracted_texts.get(roi_name, "")
-            if pred_text != gt_text:
-                region_image = self._text_region_images.get(roi_name, None)
-                if region_image is not None:
-                    display_region_image(roi_name=f"Region: {roi_name}\nGT: {gt_text}",
-                                         image=region_image,
-                                         result=pred_text)
-        for roi_name, gt_barcode in self.gt_barcodes.items():
-            pred_barcode = self.extracted_barcodes.get(roi_name, "")
-            if pred_barcode != gt_barcode:
-                barcode_image = self._barcode_images.get(roi_name, None)
-                if barcode_image is not None:
-                    display_region_image(roi_name=f"Barcode: {roi_name}\nGT: {gt_barcode}",
-                                         image=barcode_image,
-                                         result=pred_barcode)
+        if self.extracted_texts:
+                for roi_name, gt_text in self.gt_texts.items():
+                    pred_text = self.extracted_texts.get(roi_name, "")
+                if pred_text != gt_text:
+                    region_image = self._text_region_images.get(roi_name, None)
+                    if region_image is not None:
+                        display_region_image(roi_name=f"Region: {roi_name}\nGT: {gt_text}",
+                                            image=region_image,
+                                            result=pred_text)
+        if self.extracted_barcodes:
+            for roi_name, gt_barcode in self.gt_barcodes.items():
+                pred_barcode = self.extracted_barcodes.get(roi_name, "")
+                if pred_barcode != gt_barcode:
+                    barcode_image = self._barcode_images.get(roi_name, None)
+                    if barcode_image is not None:
+                        display_region_image(roi_name=f"Barcode: {roi_name}\nGT: {gt_barcode}",
+                                            image=barcode_image,
+                                            result=pred_barcode)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     
@@ -208,6 +231,7 @@ class ResultPostprocessor:
         '''
         Generates a summary of the results, including metrics and extracted texts, and saves it to a text file if output_dir is provided. Optionally saves extracted texts to a JSON file and includes detailed mismatch information in the summary if verbose is True
         '''
+        os.makedirs(output_dir, exist_ok=True) if output_dir else None
         print(f"Generating summary for {summary_name}...")
         self.add_cer_metric()
         self.add_barcode_reading_accuracy_metric()
